@@ -614,7 +614,7 @@ class PeopleWorkspace:
                 return
         self.input_jobs(['people'])
 
-    def input_person_jobs(self,stages,result):
+    def input_person_jobs(self,stages,result,face_options=None):
         if self.people_state is None:return False
         if self.busy:return True
         selected=self.checked_people()
@@ -631,6 +631,8 @@ class PeopleWorkspace:
         begin=round((first-root_manifest['start'])*fps)
         finish=round((end-root_manifest['start'])*fps)
         self._people_stages=[s for s in stages if s!='track']
+        self._people_face_options=dict(face_options) if face_options is not None else None
+        if face_options and face_options.get('enabled'):self._people_stages.append('face_capture')
         self._people_batch=True
         self._people_inference_jobs=[];self._people_post_jobs=[]
         self._people_return_id=self.active_person_id if any(p['id']==self.active_person_id for p in selected) else selected[0]['id']
@@ -644,18 +646,19 @@ class PeopleWorkspace:
                 '--correction-preset',options['preset'],'--correction-mode',options['mode'],'--foot-lock',str(int(options['foot_lock'])),'--hand-lock',str(int(options['hand_lock'])),'--pelvis-offset',str(options['pelvis_offset'])]
             if not options['auto_floor']:args+=['--floor',str(options['floor'])]
             jobs.append(('person',args))
-        self.start_jobs(jobs)
+        self.start_jobs(jobs,face_options=face_options)
         return True
 
     def people_event(self,event):
         if event['type']=='person_prepared':
             # Explicit project arguments prevent a later UI selection from changing
             # which person's worker, contact edits, or exports are being processed.
-            inference=[stage for stage in self._people_stages if stage not in ('correct','export','flow_export')]
-            post=[stage for stage in self._people_stages if stage in ('correct','export','flow_export')]
+            from .face.queue import split_people_stages,face_arguments
+            inference,post=split_people_stages(self._people_stages)
+            for path in event['projects']:self.save_batch_face_options(path)
             jobs=[(stage,['--project',path,'--result',self._people_result])
                   for path in event['projects'] for stage in inference]
-            deferred=[(stage,['--project',path,'--result',self._people_result])
+            deferred=[(stage,face_arguments(self._people_face_options,path) if stage=='face_capture' else ['--project',path,'--result',self._people_result])
                       for path in event['projects'] for stage in post]
             # Prepare every actor's original camera/motion before resolving the
             # one automatic scene plane or committing any corrected exports.

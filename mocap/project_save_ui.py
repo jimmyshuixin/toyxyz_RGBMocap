@@ -46,6 +46,7 @@ class ProjectSaving:
                 preview_fps=self.info['fps'],
                 workspace_view=self.workspace_view(),
                 workspace_settings=self.workspace_settings(),
+                face_options=self.selected_face_options(),
                 mamma_inputs=self.mamma_inputs,
                 mamma_active_camera=self.mamma_active_camera,
                 flow_options=self.selected_flow_options(),

@@ -11,9 +11,19 @@ struct Vertex { vec4 position; vec4 normal; };
 layout(std430,binding=1) buffer Output { Vertex vertices[]; };
 layout(std430,binding=4) readonly buffer Frame { float pose[]; };
 uniform int vertexCount;
+uniform int morphRowsOffset;
+uniform int morphEntriesOffset;
+uniform int morphWeightsOffset;
 void main(){
  uint i=gl_GlobalInvocationID.x;if(i>=uint(vertexCount))return;
  vec4 v=vec4(model[3*i],model[3*i+1],model[3*i+2],1);
+ if(morphRowsOffset>0){
+  int row=morphRowsOffset+2*int(i);int first=int(model[row]);int count=int(model[row+1]);
+  for(int k=0;k<count;k++){
+   int e=morphEntriesOffset+4*(first+k);
+   v.xyz+=pose[morphWeightsOffset+int(model[e])]*vec3(model[e+1],model[e+2],model[e+3]);
+  }
+ }
  int r=3*vertexCount+2*int(i);int a=int(model[r]);int n=int(model[r+1]);
  vec3 p=vec3(0);
  for(int k=0;k<n;k++){
@@ -59,7 +69,27 @@ class CharacterRenderer(MeshRenderer):
         if self.asset_key==asset['key']:return
         self.release_buffers();self.vertex_count=len(asset['vertices']);self.index_count=asset['faces'].size
         self.vao.bind()
-        self.model=self.buffer(np.concatenate([asset['vertices'].ravel(),asset['rows'].ravel(),asset['weights'].ravel()]).astype('float32'))
+        pieces=[asset['vertices'].ravel(),asset['rows'].ravel(),asset['weights'].ravel()]
+        morph_rows_offset=morph_entries_offset=morph_weights_offset=0
+        if 'morph_rows' in asset:
+            rows=np.asarray(asset['morph_rows']);entries=np.asarray(asset['morph_entries'])
+            count=int(asset['morph_count']);morph_weights_offset=int(asset['morph_weight_offset'])
+            if (rows.shape!=(self.vertex_count,2) or rows.dtype.kind not in 'ui'
+                    or np.any(rows<0) or entries.ndim!=2 or entries.shape[1]!=4
+                    or not 1<=count<=64 or morph_weights_offset<16
+                    or morph_weights_offset+count>palette*16
+                    or not np.isfinite(entries).all() or np.any(rows.astype(np.int64).sum(1)>len(entries))
+                    or np.any(entries[:,0]<0) or np.any(entries[:,0]>=count)
+                    or np.any(entries[:,0]!=np.floor(entries[:,0]))):
+                raise ValueError('Invalid character facial preview.')
+            morph_rows_offset=sum(piece.size for piece in pieces)
+            morph_entries_offset=morph_rows_offset+rows.size
+            pieces += [rows.ravel(),entries.ravel()]
+        self.model=self.buffer(np.concatenate(pieces).astype('float32'))
+        self.skin.bind()
+        for name,value in [('morphRowsOffset',morph_rows_offset),('morphEntriesOffset',morph_entries_offset),('morphWeightsOffset',morph_weights_offset)]:
+            self.gl.glUniform1i(self.skin.uniformLocation(name),value)
+        self.skin.release()
         self.vertices=self.buffer(self.vertex_count*32)
         self.offsets=self.buffer(asset['offsets']);self.neighbors=self.buffer(asset['neighbors'])
         self.frame=self.buffer(palette*16*4)

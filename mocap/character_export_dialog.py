@@ -12,7 +12,7 @@ class CharacterExportDialog(QDialog):
         if kind=='pmx':self.format.addItem('VMD (.vmd)','vmd')
         form.addRow('Format',self.format)
         self.mesh=QCheckBox('Include character mesh');self.mesh.setChecked(True)
-        self.mesh.setToolTip('Checked: save the character mesh and skeleton animation. Unchecked: save only the skeleton and animation.')
+        self.mesh.setToolTip('Checked: save the character mesh, skeleton and applied facial animation. Unchecked: save only skeleton animation; facial shape keys require the mesh.')
         layout.addWidget(self.mesh)
         self.note=QLabel();self.note.setWordWrap(True);layout.addWidget(self.note)
         buttons=QDialogButtonBox(QDialogButtonBox.Save|QDialogButtonBox.Cancel)
@@ -21,7 +21,7 @@ class CharacterExportDialog(QDialog):
 
     def update_format(self):
         vmd=self.format.currentData()=='vmd';self.mesh.setVisible(not vmd)
-        self.note.setText('Motion only, sampled at 30 fps for the same PMX model. Body and finger animation is saved; facial animation and physics are not generated.' if vmd else 'Save the retargeted motion. Each take is saved as a separate file.')
+        self.note.setText('Motion only, sampled at 30 fps for the same PMX model. Includes body, fingers and any applied facial morphs. Physics is not generated.' if vmd else 'Save the retargeted motion. Each take is saved as a separate file. Include the mesh to export applied facial animation.')
         self.layout().activate()
         self.fit_note()
         self.adjustSize()

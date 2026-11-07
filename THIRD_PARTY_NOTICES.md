@@ -7,6 +7,19 @@ retained license files and provider agreements contain the full terms.
 
 ## AI tools and models
 
+The retained legacy face module ports the geometric face solver and scalar
+One Euro filter from [AmyangXYZ/reze-mipo](https://github.com/AmyangXYZ/reze-mipo)
+at commit `234b51553f44d2578606a91e1aecc7267b964854`. Those derived files retain
+GPL-3.0 terms; the root MIT grant does not replace the upstream license or remove
+the applicable GPL obligations when distributing combined/derived works. Original
+source references, hashes and adaptation notes are retained with the
+[license](third_party/reze-mipo/LICENSE) and
+[provenance](third_party/reze-mipo/PROVENANCE.json). New captures use native
+MediaPipe expression scores and do not call this historical geometric solver.
+MediaPipe and its separately downloaded face task model remain subject to their
+provider terms; pinned package/model locations are in
+`installer/face-runtime-lock.json`. See [face capture](docs/FACE_CAPTURE.md).
+
 PromptHMR's optional moving-camera support downloads [DroidCalib](https://github.com/boschresearch/DroidCalib)
 (AGPL-3.0), [LieTorch](https://github.com/princeton-vl/lietorch) (BSD-3-Clause),
 Eigen and torch-scatter with their provider licenses into the local support

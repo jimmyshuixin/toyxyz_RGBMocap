@@ -48,6 +48,9 @@ __pycache__/
 !/tests/test_memory_exmr.py
 !/tests/test_memory_retarget.py
 !/tests/test_memory_htd.py
+!/tests/test_face_*.py
+!/tests/blender_face_*.py
+!/tests/character_face_gl_check.py
 # Historical local patch packages and rollback backups
 /longvideo_patch_backups/
 /rgb-longvideo-patch/

@@ -45,7 +45,7 @@ def import_character(filename, out):
                     if name:semantic[side+'Thumb'+part]=name
     else:
         addon_utils.enable('mmd_tools',default_set=False,persistent=False)
-        bpy.ops.mmd_tools.import_model(filepath=str(filename),types={'MESH','ARMATURE'},scale=.08,log_level='ERROR')
+        bpy.ops.mmd_tools.import_model(filepath=str(filename),types={'MESH','ARMATURE','MORPHS'},scale=.08,log_level='ERROR')
     arms=[o for o in bpy.context.scene.objects if o.type=='ARMATURE']
     if len(arms)!=1:raise ValueError('Import one humanoid armature per character file.')
     arm=arms[0]
@@ -66,6 +66,9 @@ def import_character(filename, out):
     for o in bpy.context.scene.objects:
         o.animation_data_clear()
         if o.type=='MESH':
+            if o.data.shape_keys:
+                o.data.shape_keys.animation_data_clear()
+                for key in o.data.shape_keys.key_blocks:key.value=0.
             for mod in o.modifiers:
                 if mod.type=='NODES':mod.show_viewport=False;mod.show_render=False
     for pb in arm.pose.bones:pb.matrix_basis.identity()
@@ -165,8 +168,8 @@ def preview(out,arm,keyed,n):
         while b is not None and b.name not in index:b=b.parent
         owner[bone.name]=index[b.name] if b else len(palette)
     vertices=[];colors=[];faces=[];rows=[];influences=[];offset=0
-    for obj in bpy.context.scene.objects:
-        if obj.type!='MESH':continue
+    meshes=[obj for obj in bpy.context.scene.objects if obj.type=='MESH']
+    for obj in meshes:
         mesh=obj.data;mesh.calc_loop_triangles();M=np.array(obj.matrix_world)
         v=np.empty(len(mesh.vertices)*3);mesh.vertices.foreach_get('co',v);v=v.reshape(-1,3)
         vertices.append((v@M[:3,:3].T+M[:3,3])@A);colors.append(vertex_colors(obj))
@@ -183,15 +186,24 @@ def preview(out,arm,keyed,n):
     from mocap.mesh_data import adjacency
     vertices=np.concatenate(vertices).astype('float32');faces=np.asarray(faces,np.uint32)
     offsets,neighbors=adjacency(faces,len(vertices))
-    np.savez(io_path(out/'preview.npz'),vertices=vertices,colors=np.concatenate(colors),faces=faces,weights=np.asarray(influences,np.float32),rows=np.asarray(rows,np.uint32),offsets=offsets,neighbors=neighbors)
-    frames=np.lib.format.open_memmap(io_path(out/'preview-frames.npy'),mode='w+',dtype='float32',shape=(n,len(palette)+1,4,4))
+    from .blender_face import preview_morphs
+    morphs,morph_weights=preview_morphs(out,meshes,len(vertices))
+    extra=0 if morph_weights is None else (morph_weights.shape[1]+15)//16
+    if morph_weights is not None and len(morph_weights)!=n:
+        raise ValueError('Face and body preview timelines do not match.')
+    if morphs:morphs['morph_weight_offset']=np.asarray((len(palette)+1)*16,np.int32)
+    np.savez(io_path(out/'preview.npz'),vertices=vertices,colors=np.concatenate(colors),faces=faces,weights=np.asarray(influences,np.float32),rows=np.asarray(rows,np.uint32),offsets=offsets,neighbors=neighbors,**morphs)
+    frames=np.lib.format.open_memmap(io_path(out/'preview-frames.npy'),mode='w+',dtype='float32',shape=(n,len(palette)+1+extra,4,4))
     C=np.eye(4);C[:3,:3]=A.T
     rest_inv={name:(arm.matrix_world@arm.data.bones[name].matrix_local).inverted() for name in palette}
     for i in range(n):
         bpy.context.scene.frame_set(i+1);bpy.context.view_layer.update()
         for j,name in enumerate(palette):
             frames[i,j]=C@np.array(arm.matrix_world@arm.pose.bones[name].matrix@rest_inv[name])@C.T
-        frames[i,-1]=np.eye(4)
+        frames[i,len(palette)]=np.eye(4)
+        if extra:
+            tail=frames[i,len(palette)+1:];tail[:]=0
+            tail.reshape(-1)[:morph_weights.shape[1]]=morph_weights[i]
         if i%30==0:report(f'Preparing animation preview {i+1}/{n}')
     frames.flush();del frames
 
@@ -205,6 +217,12 @@ def main(args):
         bpy.ops.wm.open_mainfile(filepath=io_path(out/f'{kind}-rest.blend'),load_ui=False)
         from .blender_textures import extract
         extract(out)
+    elif mode=='face':
+        from .blender_face import apply_face
+        options=json.loads(rest[1])
+        arm,keyed,names=apply_face(out,rest[0],float(options['start']),int(options['frames']),float(options['fps']),rest=bool(options.get('rest',False)),optional=bool(options.get('optional',False)))
+        preview(out,arm,keyed,int(options['frames']))
+        if names:report('Facial animation ready: '+', '.join(names))
     elif mode=='bake':
         from . import blender_bake
         blender_bake.OUT=out

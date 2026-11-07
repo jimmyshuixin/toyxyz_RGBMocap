@@ -42,6 +42,7 @@ class CharacterWorkspace:
                     if len(data)>8:raise ValueError('Too many imported characters (maximum 8).')
                     for c in data:
                         self.character_path(c['asset'])
+                        if c.get('face_motion'):self.character_path(c['face_motion'])
                         if c.get('animation'):
                             self.character_path(c['animation'])
                             for take in c.get('takes',[]):self.character_path(c['animation']+'/'+take['folder'])
@@ -64,6 +65,10 @@ class CharacterWorkspace:
         return p
 
     def save_characters(self):atomic_json(self.character_root/'characters/index.json',self.characters)
+
+    def capture_face(self,checked=False,character=None):
+        from .face_ui import capture_face
+        capture_face(self,character)
 
     def selected_character(self):
         item=self.people_list.currentItem()
@@ -165,6 +170,8 @@ class CharacterWorkspace:
             action.triggered.connect(lambda checked=False,s=source:self.retarget_character(c,s))
         export=menu.addAction('Export Character...');export.setEnabled(bool(c.get('takes')) and not c.get('needs_retarget'))
         export.triggered.connect(lambda:self.export_character(c))
+        face=menu.addAction('Capture Face...')
+        face.triggered.connect(lambda:self.capture_face(character=c))
         menu.addSeparator()
         remove=menu.addAction('Remove Character')
         try:
@@ -235,6 +242,10 @@ class CharacterWorkspace:
         from .retarget.runtime import blender
         from .runtime_registry import command
         try:
+            if job['mode']=='retarget':
+                character=next((c for c in self.characters if c['id']==job.get('id')),None)
+                if character and character.get('face_motion'):
+                    job['face_motion']=str(self.character_path(character['face_motion']))
             if job['mode']!='adopt':blender()
             path=self.character_root/'characters'/('job-'+uuid.uuid4().hex+'.json');atomic_json(path,job)
             args=['--request',str(path)]
@@ -291,7 +302,14 @@ class CharacterWorkspace:
                 c.pop('_starts',None)
                 c.pop('needs_retarget',None)
                 c.update(animation=job['animation'],takes=result['takes'],source_name=result['source_name'],result=result['result'])
-            if job['mode'] in {'import','retarget'}:
+            elif job['mode']=='face':
+                c=next(c for c in self.characters if c['id']==job['id'])
+                c.pop('_starts',None)
+                c.update(animation=job['animation'],takes=result['takes'],
+                         face_motion=job['face_motion_relative'])
+                if not c.get('source_name'):c['source_name']=result['source_name']
+                if not c.get('result'):c['result']=result['result']
+            if job['mode'] in {'import','retarget','face'}:
                 self.save_characters();self.request_character(c);self.append_character_rows()
             self.status.setText(f'Character ready · {result["seconds"]:.1f}s');self.progress.setRange(0,100);self.progress.setValue(100)
         else:

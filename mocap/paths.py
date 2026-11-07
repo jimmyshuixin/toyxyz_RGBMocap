@@ -13,6 +13,9 @@ COMPAT = ROOT / "native_compat"
 
 
 def worker_command(stage: str, *args: str) -> list[str]:
+    if stage=='face_capture':
+        from .face.runtime import pipeline_command
+        return pipeline_command(args)
     if stage.startswith('prompthmr_') and stage not in ('prompthmr_prepare','prompthmr_publish'):
         from .prompthmr_runtime import command as phmr_command
         return phmr_command(stage,args)

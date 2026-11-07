@@ -9,6 +9,14 @@ from .video import select_preview
 
 
 class ModelWorkspace:
+    def selected_face_options(self):
+        return dict(enabled=self.face_capture.isChecked() and self.model_choice.currentData() in ('exmr','flowhmr','gvhmr'),smoothing=True)
+
+    def restore_face_options(self,options):
+        blocked=self.face_capture.blockSignals(True)
+        self.face_capture.setChecked(bool(options.get('enabled',False)))
+        self.face_capture.blockSignals(blocked)
+
     def selected_flow_options(self):
         return dict(camera_interval=self.flow_sampling.currentData(), fast_sam=self.fast_sam.isChecked(),
                     sam_batch4=self.flow_batch4.isChecked(), sam_gpu_crop=self.flow_gpu_crop.isChecked(),
@@ -16,12 +24,14 @@ class ModelWorkspace:
 
     def workspace_settings(self):
         return dict(result=self.active_result,correction=self.selected_correction_options(),
+            face_options=self.selected_face_options(),
             mamma_options=self.mamma_options(),
             prompthmr_options=self.prompthmr_options(),
             flow_options=self.selected_flow_options(),
             exmr_options={'static_camera':self.exmr_camera.currentData(),'smoothing':'global' if self.exmr_smoothing.isChecked() else 'none'})
 
     def restore_workspace_settings(self,settings):
+        self.restore_face_options(settings.get('face_options',{}))
         from .motion_tools import result_options,has_handflow,result_kind
         gvhmr=self.model_choice.currentData()=='gvhmr'
         kind=settings.get('result',result_kind(gvhmr,gvhmr,True,gvhmr))
@@ -59,7 +69,7 @@ class ModelWorkspace:
             state=manifest(self.project)
             state.setdefault('pipeline',{})['result']=self.active_result
             settings=self.workspace_settings()
-            for key in ('correction','flow_options','exmr_options','prompthmr_options'):state[key]=settings[key]
+            for key in ('correction','flow_options','exmr_options','prompthmr_options','face_options'):state[key]=settings[key]
             atomic_json(self.project/'project.json',state)
             saved=workspace.set_active(root,state['pipeline']['model'],self.project,self.workspace_view())
             model=state['pipeline']['model']

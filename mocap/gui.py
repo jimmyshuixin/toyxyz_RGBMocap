@@ -31,6 +31,7 @@ STAGES = {"prepare": "Prepare Video", "track": "Track Actor", "pva": "Analyze 2D
 from .theme import STYLE
 STAGES["mesh"] = "Prepare SMPL-X Mesh"
 STAGES['rig']='Prepare Bone Preview'
+STAGES['face_capture']='Capture Face'
 STAGES['save_fbx']='Save FBX'
 STAGES['copy_bvh']='Save BVH'
 STAGES['save_blend']='Save Blender Project'
@@ -384,6 +385,8 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
         self.cancelled = False
         self.hardware_summary = None
         self.current_stage = None
+        self._batch_face_options=None
+        self._face_warnings=[]
         self._batch_started_at = None
         self._batch_has_motion = False
         from .task_progress import TaskProgress
@@ -442,6 +445,8 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
 
     @read_only_checks
     def update_readiness(self):
+        self.face_capture_action.setEnabled(not self.busy and not self.contact_saving and not self._pear_active)
+        self.face_capture.setEnabled(not self.busy and self.model_choice.currentData() in ('exmr','flowhmr','gvhmr'))
         self.export_preview_action.setEnabled(self.preview_export_available())
         if self._pear_active:
             if hasattr(self,'camera_tools'):self.camera_tools.sync()
@@ -699,6 +704,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
             self.flow_gpu_crop.setChecked(True)
             self.flow_hand_stride4.setChecked(True)
             self.flow_hamer.setChecked(False)
+            self.restore_face_options({})
             self.exmr_camera.setCurrentIndex(0)
             self.exmr_smoothing.setChecked(True)
             self.camera_tools.restore_background({})
@@ -837,6 +843,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
         self.motion_correction.setChecked(result.startswith('corrected_') if has_motion or saved_selection else True)
         self.motion_correction.blockSignals(False)
         self.restore_correction_options(manifest.get('correction',{}))
+        self.restore_face_options(manifest.get('face_options',{}))
         self.active_result = self.selected_result()
         self.video_path = source_video(project, manifest)
         self.video_readable = False
@@ -997,7 +1004,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
             self.stop_playback()
         super().hideEvent(event)
 
-    def input_jobs(self, stages, result=None):
+    def input_jobs(self, stages, result=None, face_options=None):
         if MOTION_TOOLS[self.model_choice.currentData()].input_setup_only:
             self.status.setText('MAMMA camera input setup is available; reconstruction is not integrated yet.')
             return
@@ -1010,7 +1017,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
         if 'people' not in stages and self._single_actor and not self._single_actor['checked']:
             self.status.setText('Check Person 1 in the People list to reconstruct it.')
             return
-        if 'people' not in stages and self.input_person_jobs(stages,result):
+        if 'people' not in stages and self.input_person_jobs(stages,result,face_options=face_options):
             return
         unavailable = [model for stage in stages for model in ([] if self.model_choice.currentData()=='flowhmr' and stage=='flow_camera' and self.flow_sampling.currentData()==-1 else missing('flow_export' if self.model_choice.currentData()=='flowhmr' and stage in ('correct','export') else stage))]
         if self.model_choice.currentData()=='flowhmr' and self.flow_hamer.isChecked():
@@ -1041,14 +1048,24 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
                                  '--correction-mode',self.correction_mode.currentData(),
                                  '--foot-lock',str(int(self.foot_lock.isChecked())),'--hand-lock',str(int(self.hand_lock.isChecked())),
                                  '--pelvis-offset',str(self.pelvis_offset.value())]
-        self.start_jobs([("prepare", prepare_args)]
-                        + [(stage, ["--result", result] if stage in {"export", "flow_export", "footmr", "handflow", "correct"} and result else None) for stage in stages])
+        jobs=[("prepare", prepare_args)]+[(stage, ["--result", result] if stage in {"export", "flow_export", "footmr", "handflow", "correct"} and result else None) for stage in stages]
+        if face_options is not None:
+            from .face.queue import append_capture_jobs
+            jobs=append_capture_jobs(jobs,model=self.model_choice.currentData(),options=face_options)
+        self.start_jobs(jobs,face_options=face_options)
 
     def run_analysis(self):
         self.input_jobs(["track", "pva"])
 
     def run_full(self):
         tool = MOTION_TOOLS[self.model_choice.currentData()]
+        face_options=self.selected_face_options()
+        if face_options['enabled']:
+            from .face.runtime import status
+            state=status()
+            if not state['ready']:
+                self.status.setText('Face capture needs setup. Use File > Capture Face... > Set Up Face Capture, then Reconstruct 3D.')
+                self.log.append(state['message']);return
         if tool.key=='mamma':return self.run_mamma()
         if tool.key=='prompthmr':return self.run_prompthmr()
         if tool.key=='exmr' and self.people_root is not None:
@@ -1066,7 +1083,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
         correction=self.motion_correction.isChecked()
         if correction:self.save_correction_options()
         hand=tool.key=='gvhmr' and self.handflow_refine.isChecked()
-        self.input_jobs(tool.stages(refine, foot,correction,handflow=hand), result=result_kind(refine, foot,correction,handflow=hand))
+        self.input_jobs(tool.stages(refine, foot,correction,handflow=hand), result=result_kind(refine, foot,correction,handflow=hand),face_options=face_options)
 
     def save_correction_options(self):
         if self.project is not None:
@@ -1203,10 +1220,12 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
         os.environ[ENV]='1' if value else '0'
         self.log.append(message(value))
 
-    def start_jobs(self, jobs, refresh_characters=False):
+    def start_jobs(self, jobs, refresh_characters=False, face_options=None):
         if self.busy:
             return
         jobs=list(jobs)
+        self._batch_face_options=dict(face_options) if face_options is not None else None
+        self._face_warnings=[]
         from .resource_safety import message
         self._job_resource_safety=self.resource_safety.isChecked()
         self.log.append(message(self._job_resource_safety))
@@ -1318,7 +1337,8 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
             self.finish_people_jobs()
             if self.failed or self.cancelled:self.status.setText(completion_message)
             if not self.failed and not self.cancelled:
-                if self.current_stage in ("export",'flow_export') and self.project is not None and not person_batch:
+                if (self.current_stage in ("export",'flow_export','face_capture') and self.project is not None and not person_batch
+                        and (self.current_stage!='face_capture' or (self.project/'export.json').is_file())):
                     metadata = json.loads((self.project / "export.json").read_text(encoding="utf-8"))
                     self.set_active_result(metadata.get("result_kind", "refined"))
                 if self.current_stage == "diagnose" and self.hardware_summary:
@@ -1341,6 +1361,9 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
                     self.log.append(f'Total motion processing time: {elapsed:.2f} s')
             self.refresh_results()
             self.update_readiness()
+            if self._face_warnings and not self.failed and not self.cancelled:
+                self.status.setText('Body motion complete. Face capture warning: '+self._face_warnings[-1])
+            self._batch_face_options=None
             if self.failed or self.cancelled:
                 self.character_refresh_queue=[]
             else:
@@ -1358,7 +1381,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
         self._batch_inner_stage=stage
         if arguments is None:
             arguments = ["--project", str(self.project)]
-        elif stage in {"export", "footmr", "handflow", "correct", 'flow_export'} and "--project" not in arguments:
+        elif stage in {"export", "footmr", "handflow", "correct", 'flow_export','face_capture'} and "--project" not in arguments:
             arguments = ["--project", str(self.project), *arguments]
         self.job_project = Path(arguments[arguments.index('--project')+1]) if '--project' in arguments else None
         if stage=='track':self.begin_single_tracking(self.job_project)
@@ -1387,7 +1410,11 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
                 self.failed=True;self.log.append(str(error));self.status.setText('Cannot prepare people processing: '+str(error))
                 self.next_job();return
             arguments=['--request',str(self._batch_request),'--project',str(self.job_project)]
-        command = worker_command(stage, *arguments)
+        try:command = worker_command(stage, *arguments)
+        except (OSError,ValueError,RuntimeError,KeyError) as error:
+            if stage!='face_capture':raise
+            self.failed=True;self.log.append(str(error));self.status.setText('Face capture could not start: '+str(error))
+            self.next_job();return
         self.process = QProcess(self)
         self.process.setWorkingDirectory(str(ROOT))
         environment = QProcessEnvironment.systemEnvironment()
@@ -1481,6 +1508,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
             self._task_preparing=False
             self._task_manifests={}
             self.project = Path(event["project"])
+            self.save_batch_face_options(self.project)
             from .project_storage import storage_root
             saved_root=storage_root(self.project)
             from .project_workspace import is_workspace
@@ -1491,6 +1519,13 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
             self.load_project(self.project)
         elif kind == 'project_saved':
             self._project_saved_root=Path(event['root'])
+        elif kind == 'face_warning':
+            message=event.get('message','Face capture was unavailable for this take.')
+            self._face_warnings.append(message);self.log.append(message)
+        elif kind == 'face_ready':
+            message=event.get('message') or ('Face capture ready: '+str(event.get('project','')))
+            if event.get('status')=='skipped':self._face_warnings.append(message)
+            self.log.append(message)
         elif kind == 'save_cancelled':
             self.cancelled=True
             self.status.setText(event['message'])
@@ -1516,6 +1551,14 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,PromptHMRWorkspace,MammaWo
             if not event.get('batch_inner'):self.task_state.cached|=bool(event.get('cached',False))
             self.log.append(f"{STAGES.get(event['stage'])}: {event.get('elapsed', 0):.2f} s · {event.get('output')}")
         self.log.ensureCursorVisible()
+
+    def save_batch_face_options(self,project):
+        if self._batch_face_options is None:return
+        from .storage import atomic_json
+        path=Path(project)/'project.json'
+        state=json.loads(path.read_text(encoding='utf8'))
+        state['face_options']=dict(self._batch_face_options)
+        atomic_json(path,state)
 
     def process_finished(self, code, _):
         self.read_stdout(final=True)

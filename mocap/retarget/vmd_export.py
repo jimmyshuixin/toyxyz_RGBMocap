@@ -1,7 +1,7 @@
 """PMX motion export using the bundled MMD Tools coordinate conversion.
 
-Stream body/finger keys at MMD's fixed 30 Hz. No model, accessory animation,
-camera, morph or physics data is generated. Outputs target the same PMX rig.
+Stream body/finger and captured facial keys at MMD's fixed 30 Hz. No model,
+accessory animation, camera or physics data is generated. Outputs target the same PMX rig.
 """
 import json,math,struct,sys,uuid
 from pathlib import Path
@@ -95,6 +95,13 @@ def export_vmd(folder,target,transform,label):
     scene=bpy.context.scene;fps=scene.render.fps/scene.render.fps_base
     start,end=scene.frame_start,scene.frame_end
     count=max(1,math.ceil((end-start)/fps*30-1e-8)+1)
+    face_path=Path(io_path(folder/'face-applied.npz'))
+    face_names=[];face_weights=None
+    if face_path.is_file():
+        from .face_track import load_track,sample_track
+        face=load_track(face_path)
+        face_names=[name_bytes(name,15) for name in face['morph_names']]
+        face_weights=sample_track(face,face['start_seconds'],count,30.)
     world=arm.matrix_world.copy()
     if transform is not None:
         C=np.eye(4);C[:3,:3]=A
@@ -146,7 +153,12 @@ def export_vmd(folder,target,transform,label):
                     previous[pb.name]=q.copy()
                     f.write(encoded_name);f.write(struct.pack('<I3f4f',frame,*loc,q.x,q.y,q.z,q.w));f.write(linear)
                 if frame%60==0:print(f'CHARACTER: Saving VMD {frame+1}/{count}',flush=True)
-            f.write(struct.pack('<4I',0,0,0,0)) # morph, camera, light, shadow
+            f.write(struct.pack('<I',count*len(face_names)))
+            for frame in range(count):
+                for channel,encoded_name in enumerate(face_names):
+                    f.write(encoded_name)
+                    f.write(struct.pack('<If',frame,float(face_weights[frame,channel])))
+            f.write(struct.pack('<3I',0,0,0)) # camera, light, shadow
             f.write(struct.pack('<IIBI',1,0,1,len(ik_names)))
             for name in ik_names:f.write(name+b'\0') # disable IK: retain baked FK contacts
         Path(io_path(temp)).replace(io_path(target))

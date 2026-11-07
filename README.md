@@ -11,6 +11,14 @@ and [native two-spine PMX support](docs/PMX_TWO_SPINE.md) on upstream commit
 is needed. See the [fork integration and validation notes](docs/FORK_INTEGRATION.md)
 for scope, regression checks and updates.
 
+Optional [MediaPipe video face capture](docs/FACE_CAPTURE.md) combines native
+expression scores with existing body motion, including smoothing and bounded
+estimates through brief detection gaps. Enable **Capture Face** beside the motion
+settings, then run **Reconstruct 3D** and retarget normally; `Setup_Face.cmd`
+prepares its isolated CPU runtime. Compatible character expressions can be
+previewed and exported as PMX VMD or mesh FBX. Existing five-channel face tracks
+remain readable; richer expression detail requires compatible character shapes.
+
 ## Sample videos
 
 ### Motion capture

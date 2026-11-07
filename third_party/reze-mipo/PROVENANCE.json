@@ -1,0 +1,30 @@
+{
+  "upstream": "https://github.com/AmyangXYZ/reze-mipo",
+  "commit": "234b51553f44d2578606a91e1aecc7267b964854",
+  "commit_date": "2026-10-12T15:31:04Z",
+  "retrieved": "2026-11-07",
+  "license": "GPL-3.0",
+  "source_files": [
+    {
+      "path": "src/lib/face-blendshape-solver.ts",
+      "git_blob_sha": "f3cb2c92ea0b61c10edc7b5ce6810117da4c2eb4"
+    },
+    {
+      "path": "src/lib/filters.ts",
+      "git_blob_sha": "86895e5e11665c6d395cd2873d198b962dc0a160"
+    }
+  ],
+  "port": "mocap/face/solver.py",
+  "changes": [
+    "Python translation; pure Python arithmetic and scalar OneEuro filtering.",
+    "Reject nonfinite/degenerate/missing landmarks, return neutral and reset filters on gaps.",
+    "Optional smoothing and eye-channel exchange; default equations/mapping match upstream.",
+    "Eye quaternion q_y * q_x, XYZW order, verified against Reze Engine Quat.fromEuler.",
+    "Local standalone FaceLandmarker CPU replaces browser HolisticLandmarker GPU; same 478 mesh topology, not a claim of identical detector predictions."
+  ],
+  "dependencies": {
+    "upstream_mediapipe_tasks_vision": "0.10.32",
+    "upstream_reze_engine": "0.55.2"
+  },
+  "quaternion_reference": "https://github.com/AmyangXYZ/reze-engine/blob/ff161b2fa1ef0c7dc378c1b9afbf50938c119c1e/engine/src/math.ts"
+}
