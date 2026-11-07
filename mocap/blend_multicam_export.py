@@ -14,6 +14,7 @@ def run(request, emit=lambda *a, **k: None):
     from .mamma_body import WORLD_ROTATION
     from .mesh_data import reference_vertices
     from .fbx_export import run as export_fbx
+    from .motion_heading import output_transform
     from .video import probe
     request=Path(request);temporary=None;bundle=None
     if request.stat().st_size>4*1024**2:raise ValueError('Export request is too large')
@@ -73,6 +74,9 @@ def run(request, emit=lambda *a, **k: None):
         for p,_,_ in checks:
             camera=read_camera(p)
             if camera is None or not np.allclose(camera['world_to_camera'],camera_jobs[0]['world_to_camera'],atol=1e-6):raise ValueError('Primary camera changed. Prepare Preview first.')
+        heading=output_transform()
+        for c in camera_jobs:
+            c['world_to_camera']=(np.asarray(c['world_to_camera'])@np.linalg.inv(heading)).tolist()
         required=sum(file_stat(c['source'])[0] for c in camera_jobs)+sum((a['end']-a['first'])*10475*12 for a in actors)+512*1024**2
         disk_check(target.parent.parent,required)
         bundle=Bundle(target,request);temporary=bundle.work
@@ -91,7 +95,8 @@ def run(request, emit=lambda *a, **k: None):
                 with (temporary/cache).open('wb') as out:
                     out.write(struct.pack('<12siiffi',b'POINTCACHE2\0',1,count,0.,1.,len(frames)))
                     for f,frame in enumerate(frames):
-                        vertices=reference_vertices(packed,frame,count)[:,[0,2,1]].copy();vertices[:,1]*=-1
+                        vertices=reference_vertices(packed,frame,count)@heading[:3,:3].T
+                        vertices=vertices[:,[0,2,1]].copy();vertices[:,1]*=-1
                         if not np.isfinite(vertices).all():raise ValueError('Non-finite mesh vertices')
                         if f==0:
                             np.savez(temporary/(stem+'.npz'),vertices=vertices,faces=faces)

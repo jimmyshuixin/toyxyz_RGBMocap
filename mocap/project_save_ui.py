@@ -4,6 +4,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QFileDialog
 from .project_storage import storage_root, manifest
 from .storage import atomic_json
+from .motion_heading import HEADING_VERSION, upgrade_saved_camera
 
 
 class ProjectSaving:
@@ -34,6 +35,7 @@ class ProjectSaving:
             view = self.motion_view
             self._project_save_view = {key: getattr(view, key).copy() if hasattr(getattr(view, key), 'copy') else getattr(view, key)
                 for key in ('yaw', 'pitch', 'distance', 'pan', 'scene_center')}
+            self._project_save_view['heading_version'] = HEADING_VERSION
             self._project_save_temp = tempfile.TemporaryDirectory(prefix='rgbmocap-save-')
             request = Path(self._project_save_temp.name) / 'save.json'
             pipeline = {'result': self.selected_result()}
@@ -68,7 +70,13 @@ class ProjectSaving:
             # A successful atomic commit wins over a last-millisecond Cancel.
             self.cancelled = False
             self.load_project(root)
-            for key, value in self._project_save_view.items():
+            camera=upgrade_saved_camera(self._project_save_view)
+            for key in ('yaw', 'pitch', 'distance', 'pan', 'scene_center'):
+                if key not in camera:continue
+                value=camera[key]
+                if key in ('pan', 'scene_center'):
+                    from numpy import asarray
+                    value=asarray(value,dtype=float)
                 setattr(self.motion_view, key, value)
             self.motion_view.auto_fit = False
             self.motion_view.update()

@@ -37,6 +37,7 @@ __pycache__/
 /artifacts/
 /experiments/
 /tests/*
+!/tests/test_motion_heading*.py
 !/tests/test_longvideo_attention.py
 !/tests/test_longvideo_identity.py
 !/tests/test_longvideo_models.py

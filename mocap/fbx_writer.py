@@ -66,7 +66,8 @@ def _euler(matrix):
 
 
 def write(path, names, parents, rest, rest_frames, display, tip_local, frames, fps,
-          transform=None, progress=lambda *args:None, rig_name='SourceAnimation', prepend_tpose=False,symmetric_bind=None):
+          transform=None, progress=lambda *args:None, rig_name='SourceAnimation', prepend_tpose=False,symmetric_bind=None,
+          reference_transform=None):
     """Write one committed mapped take; working rotation arrays are one bone wide."""
     from .person_names import validate_name
     rig_name=validate_name(rig_name)
@@ -102,6 +103,7 @@ def write(path, names, parents, rest, rest_frames, display, tip_local, frames, f
         tip_local=np.einsum('nji,nj->ni',display,ends)
     from .scene_camera import validate_transform
     transform=validate_transform(np.eye(4) if transform is None else transform)
+    reference_transform=transform if reference_transform is None else validate_transform(reference_transform)
     ids=np.arange(1000,1052);objects=[];connections=[]
     link=lambda a,b,p=None:connections.append(node('C','OO' if p is None else 'OP',int(a),int(b),*(() if p is None else (p,))))
     # Empty parent is an FBX armature container, not an extra animated bone.
@@ -188,7 +190,9 @@ def write(path, names, parents, rest, rest_frames, display, tip_local, frames, f
             if prepend_tpose:
                 # Identity BVH world frames describe the straight-arm export bind.
                 # Display axes transport that T-pose into the FBX bone basis.
-                pose=transform[:3,:3]@display[j] if p<0 else display[p].T@display[j]
+                # The optional reference retains its native forward direction;
+                # its position still coincides with the first exported root.
+                pose=reference_transform[:3,:3]@display[j] if p<0 else display[p].T@display[j]
                 local=np.concatenate((pose[None],local))
             angles=np.degrees(continuous_angles(np.radians(_euler(np.asarray(local_rest[j]).T@local))))
             curves(j,'Lcl Rotation',angles);progress(j+1,52)

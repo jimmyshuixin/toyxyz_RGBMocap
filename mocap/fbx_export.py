@@ -10,6 +10,7 @@ from .result_artifacts import file_stat
 def run(request, emit=lambda *a, **k:None):
     from .fbx_writer import write
     from .scene_export import context
+    from .motion_heading import output_transform
     request=Path(request)
     if request.stat().st_size>4*1024**2:raise ValueError('Export request is too large')
     rows=json.loads(request.read_text(encoding='utf-8'))
@@ -44,7 +45,8 @@ def run(request, emit=lambda *a, **k:None):
                     symmetric=dict(rest=data['rest'],ends=data['ends'])
             frames=np.load(project/info['frames_file'],mmap_mode='r',allow_pickle=False)
             try:
-                transform=np.eye(4) if scene is None else np.asarray(scene['transform'],float)
+                reference_transform=np.eye(4) if scene is None else np.asarray(scene['transform'],float)
+                transform=output_transform(reference_transform)
                 if row.get('place_at_origin',False):
                     from .export_options import centered_transform
                     transform=centered_transform(transform,frames[0,0,:3,3],origins,row.get('origin_group',str(project)))
@@ -53,7 +55,8 @@ def run(request, emit=lambda *a, **k:None):
                 write(temporary,info['names'],a['parents'],a['fbx_rest'],a['fbx_rest_frames'],
                       a['fbx_display_frames'],a['fbx_tip_local'],frames,info['fps'],
                       transform=transform,progress=progress,
-                      rig_name=row.get('rig_name','SourceAnimation'),prepend_tpose=row.get('prepend_tpose',False),symmetric_bind=symmetric)
+                      rig_name=row.get('rig_name','SourceAnimation'),prepend_tpose=row.get('prepend_tpose',False),symmetric_bind=symmetric,
+                      reference_transform=reference_transform)
             finally:frames._mmap.close()
         for _,_,project,kind,paths,stamps,scene in staged:
             if [file_stat(p) for p in paths]!=stamps or selected_export(project,kind)!=paths[1]:

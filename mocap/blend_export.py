@@ -10,6 +10,7 @@ def run(request,emit=lambda *a,**k:None):
     from .scene_export import context
     from .fbx_export import run as export_fbx
     from .camera_tracks import load,at
+    from .motion_heading import output_transform
     from .camera_background_worker import refined,current
     from .video import probe
     request=Path(request);bundles=[];checks=[];cache={}
@@ -49,7 +50,9 @@ def run(request,emit=lambda *a,**k:None):
             times=state['start']+np.arange(n)/fps
             track=[at(camera,t,scale if animate else 0.) for t in times]
             if any(m is None for m in track):raise ValueError('Saved camera does not cover the selected motion')
-            track=np.asarray(track)
+            # Cameras consume the same output world as the nested FBX. Keep
+            # stored calibration and background refinement in their native world.
+            track=np.asarray(track)@np.linalg.inv(output_transform())
             if not animate:track[:]=track[0]
             video=inputs.track(project/'input.mp4');media=probe(video)
             if (media['frames']!=n or abs(media['fps']-fps)>.001

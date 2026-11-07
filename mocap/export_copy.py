@@ -7,6 +7,7 @@ from .result_artifacts import file_stat
 
 
 def run(request,emit=lambda *a,**k:None):
+    from .motion_heading import output_transform
     request=Path(request)
     if request.stat().st_size>4*1024**2:raise ValueError('Export request is too large')
     rows=json.loads(request.read_text(encoding='utf-8'))
@@ -30,7 +31,8 @@ def run(request,emit=lambda *a,**k:None):
             staged.append((temporary,target,project,row['kind'],source,stamp,scene))
             with source.open('rb') as inp,temporary.open('xb') as out:
                 def progress():emit('progress',stage='copy_bvh',current=i,total=len(rows),message='Saving BVH in shared scene' if scene else 'Saving BVH')
-                transform=np.eye(4) if scene is None else np.asarray(scene['transform'],float)
+                reference_transform=np.eye(4) if scene is None else np.asarray(scene['transform'],float)
+                transform=output_transform(reference_transform)
                 if row.get('place_at_origin',False):
                     from .export_options import centered_transform,first_bvh_root
                     transform=centered_transform(transform,first_bvh_root(inp),origins,row.get('origin_group',str(project)))
@@ -42,12 +44,12 @@ def run(request,emit=lambda *a,**k:None):
                         from tempfile import TemporaryFile
                         from .scene_export import transform_motion
                         with TemporaryFile() as prepared:
-                            transform_motion(inp,prepared,transform,progress,prepend_tpose=row.get('prepend_tpose',False),symmetric_rest=symmetric)
+                            transform_motion(inp,prepared,transform,progress,prepend_tpose=row.get('prepend_tpose',False),symmetric_rest=symmetric,reference_transform=reference_transform)
                             prepared.seek(0);convert(prepared,out,progress)
                     else:convert(inp,out,progress)
                 elif prepare:
                     from .scene_export import transform_motion
-                    transform_motion(inp,out,transform,progress,prepend_tpose=row.get('prepend_tpose',False),symmetric_rest=symmetric)
+                    transform_motion(inp,out,transform,progress,prepend_tpose=row.get('prepend_tpose',False),symmetric_rest=symmetric,reference_transform=reference_transform)
                 else:
                     while True:
                         chunk=inp.read(1024*1024)

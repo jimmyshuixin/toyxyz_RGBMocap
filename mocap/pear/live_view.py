@@ -5,6 +5,7 @@ from PySide6.QtOpenGL import QOpenGLBuffer,QOpenGLVertexArrayObject,QOpenGLShade
 from ..rig_gl import RigRenderer
 from ..mesh_gl import MeshRenderer
 from ..bone_gl import BoneRenderer
+from ..motion_heading import source_camera
 from .preview_bones import PreviewBones
 
 VERTEX='''#version 430 core
@@ -47,7 +48,7 @@ class LiveRenderer:
         if view.live_asset.get('render_mode')!='bones':
             if self.mesh is None:self.mesh=RigRenderer()
             self.mesh.load(view.live_asset);self.mesh.deform(view.live_data['vertices'],view.live_key)
-            self.mesh.draw(*view._paint_camera,view.width(),view.height(),(.64,.79,.86))
+            self.mesh.draw(*source_camera(*view._paint_camera),view.width(),view.height(),(.64,.79,.86))
         if view.show_bones:
             j=view.live_data['joints'];parents=view.live_parents
             revision=view.live_data.get('rig_revision',0)
@@ -56,7 +57,7 @@ class LiveRenderer:
             if self.bone_key!=view.live_key:
                 self.bone_frames=self.bone_preview.frames(j,view.live_data['bone_facing']);self.bone_key=view.live_key
             self.bones.load(self.bone_preview.asset);self.bones.deform(self.bone_frames,view.live_key)
-            self.bones.draw(*view._paint_camera,view.width(),view.height())
+            self.bones.draw(*source_camera(*view._paint_camera),view.width(),view.height())
 
     def close(self):
         self.bones.close()

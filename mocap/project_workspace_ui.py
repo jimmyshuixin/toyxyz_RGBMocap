@@ -6,6 +6,7 @@ from . import project_workspace as workspace
 from .project_storage import manifest
 from .storage import atomic_json
 from .video import select_preview
+from .motion_heading import HEADING_VERSION, upgrade_saved_camera
 
 
 class ModelWorkspace:
@@ -59,7 +60,8 @@ class ModelWorkspace:
         return dict(camera_background=self.camera_tools.background_options(),source_time=self.source_offset+self.slider.value()/fps,
             trim_time=[self.source_offset+self.slider.clip_in/fps,self.source_offset+self.slider.clip_out/fps],
             camera={**{key:np.asarray(getattr(self.motion_view,key)).tolist()
-                    for key in ('yaw','pitch','distance','pan','scene_center')},'target':self.motion_view.target().tolist()})
+                    for key in ('yaw','pitch','distance','pan','scene_center')},'target':self.motion_view.target().tolist(),
+                    'heading_version':HEADING_VERSION})
 
     def remember_workspace_model(self):
         if getattr(self,"_pear_active",False):return
@@ -101,8 +103,10 @@ class ModelWorkspace:
     def restore_workspace_camera(self,consume=False):
         camera=getattr(self,'_workspace_camera',None)
         if not camera:return
-        for key,value in camera.items():
-            if key=='target':continue
+        camera=upgrade_saved_camera(camera)
+        for key in ('yaw','pitch','distance','pan','scene_center'):
+            if key not in camera:continue
+            value=camera[key]
             setattr(self.motion_view,key,np.asarray(value,float) if key in ('pan','scene_center') else float(value))
         if 'target' in camera:self.motion_view.pan+=np.asarray(camera['target'])-self.motion_view.target()
         self.motion_view.auto_fit=False

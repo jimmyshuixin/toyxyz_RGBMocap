@@ -15,6 +15,7 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from .preview_data import mapped_array, motion_summary, close_array
 from .foot_contacts import FOOT_COLORS
 from .footlock_editor import CONTACT_COLORS
+from .motion_heading import output_points, output_transform, source_camera
 
 OPENGL_VIEW = os.environ.get("QT_QPA_PLATFORM") != "offscreen"
 ViewportBase = QOpenGLWidget if OPENGL_VIEW else QWidget
@@ -56,7 +57,7 @@ class MotionView(ViewportBase):
         self._owned_rotations = None
         self.scene_span = 1.7
         self.index = 0
-        self.yaw, self.pitch = -2.76, 0.20
+        self.yaw, self.pitch = math.pi - 2.76, 0.20
         self.distance = 3.2
         self.pan = np.zeros(3)
         self.follow = True
@@ -170,7 +171,7 @@ class MotionView(ViewportBase):
             self.scene_span = summary["span"]
             if fit:
                 if not self.people_mode:
-                    self.scene_center = summary["center"].copy()
+                    self.scene_center = output_points(summary["center"])
                     self.scene_center[1] = self.floor + self.body_height * 0.50
                 self._camera_project=project;self._camera_initialized=True
             if fit and self.auto_fit:
@@ -184,7 +185,7 @@ class MotionView(ViewportBase):
         self.floor=summary['floor'];self.body_height=summary['height']+.16
         self.scene_span=summary['span']
         if self.scene_fit_root!=self.people_scene.root:
-            self.scene_center=np.asarray(summary['center']).copy()
+            self.scene_center=output_points(summary['center'])
             self.scene_center[1]=self.floor+self.body_height*.5
 
     def set_people_scene(self,scene):
@@ -222,7 +223,7 @@ class MotionView(ViewportBase):
             shared=next((r for r in self.target_renderers.values() if r.shared is None and r.topology_key==topology),None) if asset.get('mode')=='raw' else None
             self.target_renderers[slot]=RigRenderer(shared)
         renderer=self.target_renderers[slot];renderer.load(asset);renderer.deform(frame,key)
-        renderer.draw(*self._paint_camera,self.width(),self.height(),color,transform=transform,clear_depth=clear_depth)
+        renderer.draw(*source_camera(*self._paint_camera),self.width(),self.height(),color,transform=transform,clear_depth=clear_depth)
 
     def draw_bones(self,painter,actors=None):
         if not self.show_bones:return
@@ -247,7 +248,7 @@ class MotionView(ViewportBase):
                     used.add(slot)
                     if slot not in self.bone_renderers:self.bone_renderers[slot]=BoneRenderer()
                     renderer=self.bone_renderers[slot];renderer.load(asset);renderer.deform(frame,(asset['key'],index))
-                    renderer.draw(*self._paint_camera,self.width(),self.height(),transform=transform,clear_depth=ordinal==0)
+                    renderer.draw(*source_camera(*self._paint_camera),self.width(),self.height(),transform=transform,clear_depth=ordinal==0)
                 for slot in list(self.bone_renderers):
                     if slot not in used:self.bone_renderers.pop(slot).close()
                 self.bone_error=None
@@ -274,11 +275,11 @@ class MotionView(ViewportBase):
                 rig=take.arrays.get('rig')
                 points=body_points(joints[frame],rig[frame] if rig is not None else None,
                                    take.target_asset,take.transform)
-                entries.append((self.scene_names.get(take.ident,f'Person {take.ident}'),points))
+                entries.append((self.scene_names.get(take.ident,f'Person {take.ident}'),output_points(points)))
         elif self.single_actor_visible and self.joints is not None and not self.mesh_error and self.mesh_presented_index==self.index:
             points=body_points(self.joints[self.index],
                               self.target_frames[self.index] if self.target_frames is not None else None,self.target_asset)
-            entries.append((self.actor_name,points))
+            entries.append((self.actor_name,output_points(points)))
         entries.extend(self.character_name_points)
         painter.save()
         font=QFont(painter.font());font.setPixelSize(14);font.setWeight(QFont.DemiBold)
@@ -307,7 +308,7 @@ class MotionView(ViewportBase):
     def target(self):
         if self.live_active:
             target=self.scene_center.copy()
-            if self.follow and self.live_data is not None:target[[0,2]]=self.live_data["joints"][0,[0,2]]
+            if self.follow and self.live_data is not None:target[[0,2]]=output_points(self.live_data["joints"][0])[[0,2]]
             return target+self.pan
         target = self.scene_center.copy()
         if self.follow and self.people_scene is not None:
@@ -315,12 +316,13 @@ class MotionView(ViewportBase):
             roots=[self.scene_joint_points(take,frame)[0] for take,frame in actors]
             if roots:target[[0,2]]=np.mean(roots,axis=0)[[0,2]]
         elif self.follow and self.joints is not None:
-            target[[0, 2]] = self.joints[min(self.index, len(self.joints) - 1), 0, [0, 2]]
+            target[[0, 2]] = output_points(self.joints[min(self.index, len(self.joints) - 1), 0])[[0, 2]]
         return target + self.pan
 
     def scene_joint_points(self,take,frame):
         points=take.arrays.get('raw_joints') if getattr(take,'native_required',False) else take.arrays.get('joints')
-        return points[frame]@take.transform[:3,:3].T+take.transform[:3,3] if points is not None else take.points(frame)
+        native=points[frame]@take.transform[:3,:3].T+take.transform[:3,3] if points is not None else take.points(frame)
+        return output_points(native)
 
     def fit_view(self):
         self.pan[:] = 0
@@ -335,12 +337,12 @@ class MotionView(ViewportBase):
     def frame_all(self):
         if self.live_active:
             if self.live_data is not None:
-                v=self.live_data.get("bounds",self.live_data.get("vertices"));self.scene_center=(v.min(0)+v.max(0))*.5;self.body_height=float(max(1.,np.ptp(v,axis=0).max()));self.scene_span=self.body_height
+                v=self.live_data.get("bounds",self.live_data.get("vertices"));self.scene_center=output_points((v.min(0)+v.max(0))*.5);self.body_height=float(max(1.,np.ptp(v,axis=0).max()));self.scene_span=self.body_height
             self.fit_view();return
         # Explicit user framing may recenter. Replacing a corrected preview or
         # resizing the widget must retain the existing world-space camera Y.
         if self.people_scene is not None and self.people_scene.summary:
-            self.scene_center=np.asarray(self.people_scene.summary['center']).copy()
+            self.scene_center=output_points(self.people_scene.summary['center'])
         self.scene_center[1]=self.floor+self.body_height*.5
         self.fit_view()
         if self.character_workspace:
@@ -368,8 +370,8 @@ class MotionView(ViewportBase):
         self.frame_all()
 
     def set_view(self, name, fit=True):
-        self.yaw, self.pitch = {"Perspective": (-2.76, .20), "Front": (math.pi, 0),
-            "Back": (0, 0), "Right": (math.pi / 2, 0), "Left": (-math.pi / 2, 0),
+        self.yaw, self.pitch = {"Perspective": (math.pi - 2.76, .20), "Front": (0, 0),
+            "Back": (math.pi, 0), "Right": (math.pi / 2, 0), "Left": (-math.pi / 2, 0),
             "Top": (0, math.pi / 2 - .001), "Bottom": (0, -math.pi / 2 + .001)}[name]
         self.view_name = name
         if fit:
@@ -591,7 +593,7 @@ class MotionView(ViewportBase):
         return discs
 
     def draw_hand_locks(self,painter,index,frames,activity=None,transform=None):
-        self.draw_contact_discs(painter,self.hand_lock_discs(index,frames,activity,transform),CONTACT_COLORS[2:])
+        self.draw_contact_discs(painter,self.hand_lock_discs(index,frames,activity,output_transform(transform)),CONTACT_COLORS[2:])
 
     def draw_people_hand_locks(self,painter,actors):
         if not self.show_foot_locks:return
@@ -612,7 +614,7 @@ class MotionView(ViewportBase):
             if not actors:return None
             center=np.mean([self.scene_joint_points(take,frame)[0] for take,frame in actors],axis=0)
         elif self.joints is not None:
-            center=self.joints[min(self.index,len(self.joints)-1),0]
+            center=output_points(self.joints[min(self.index,len(self.joints)-1),0])
         else:return None
         from .floor_overlay import geometry
         return geometry(center,self.correction_floor,self.grid_floor)
@@ -703,7 +705,7 @@ class MotionView(ViewportBase):
                 self.mesh_renderer.load(self.mesh_asset)
                 if self.mesh_binding is not None:self.mesh_renderer.bind_skin(self.mesh_binding)
                 self.mesh_renderer.deform(self.mesh_frames[index],(str(self.path),id(self.mesh_frames),index))
-                self.mesh_renderer.draw(*self._paint_camera,self.width(),self.height(),
+                self.mesh_renderer.draw(*source_camera(*self._paint_camera),self.width(),self.height(),
                     (self.body_color.redF(),self.body_color.greenF(),self.body_color.blueF()))
                 self.mesh_presented_index = index
             except Exception as error:
@@ -729,7 +731,7 @@ class MotionView(ViewportBase):
             joints=self.scene_joint_points(take,frame)
             if self.show_trajectory:
                 path_points=points if points is not None else take.arrays['joints']
-                trail=path_points[max(0,frame-90):frame+1,0]@take.transform[:3,:3].T+take.transform[:3,3]
+                trail=output_points(path_points[max(0,frame-90):frame+1,0]@take.transform[:3,:3].T+take.transform[:3,3])
                 trail[:,1]=self.floor+.006
                 lines3d(np.stack([trail[:-1],trail[1:]],axis=1),self.scene_colors.get(take.ident,'#b5b5b5'),1.3)
             from .foot_contacts import contact_levels
@@ -781,7 +783,7 @@ class MotionView(ViewportBase):
                     mesh=take.arrays['mesh']
                     renderer.deform(mesh[frame],(str(take.project),id(mesh),frame))
                     color=QColor(self.scene_colors.get(take.ident,'#b5b5b5'))
-                    renderer.draw(*self._paint_camera,self.width(),self.height(),
+                    renderer.draw(*source_camera(*self._paint_camera),self.width(),self.height(),
                         (color.redF(),color.greenF(),color.blueF()),transform=take.transform,clear_depth=slot==0)
                     self.scene_presented[take.ident]=(str(take.project),frame)
                     if take.ident==self.scene_selected:self.mesh_presented_index=frame
@@ -874,9 +876,9 @@ class MotionView(ViewportBase):
                              "No motion loaded\n\nReconstruct a motion or open a project\nto compare the initial and refined animation.")
         elif self.joints is not None:
             index = min(self.index, len(self.joints) - 1)
-            joints = self.joints[index, :22]
+            joints = output_points(self.joints[index, :22])
             # Root trajectory preserves world translation when following the actor.
-            trail = self.joints[max(0, index - 90):index + 1, 0].copy() if self.show_trajectory else []
+            trail = output_points(self.joints[max(0, index - 90):index + 1, 0]) if self.show_trajectory else []
             if len(trail):
                 trail[:, 1] = floor + .006
             xy, depth, focal = self.project(joints)
@@ -898,7 +900,7 @@ class MotionView(ViewportBase):
             if self.show_foot_locks and self.target_frames is not None:
                 self.draw_hand_locks(painter,index,self.target_frames[index])
             # Floor arrow indicates the actor's forward direction, independent of camera.
-            forward = self.rotations[index,0,:,2].copy() if self.rotations is not None else np.cross(joints[16]-joints[17],joints[12]-joints[0])
+            forward = output_points(self.rotations[index,0,:,2]) if self.rotations is not None else np.cross(joints[16]-joints[17],joints[12]-joints[0])
             forward[1] = 0
             forward /= max(np.linalg.norm(forward), 1e-7)
             root = np.array([joints[0, 0], floor + .012, joints[0, 2]])
@@ -923,9 +925,9 @@ class MotionView(ViewportBase):
                 matrix=at(camera,self.scene_time,self.camera_translation_scale)
                 if matrix is None:continue
                 edges,origin=geometry(camera,matrix)
-                lines3d(edges,'#ffae42',1.4)
-                if len(trail)>1:lines3d(np.stack((trail[:-1],trail[1:]),axis=1),'#a48250',1.)
-                xy,z,_=self.project(origin)
+                lines3d(output_points(edges),'#ffae42',1.4)
+                if len(trail)>1:lines3d(output_points(np.stack((trail[:-1],trail[1:]),axis=1)),'#a48250',1.)
+                xy,z,_=self.project(output_points(origin))
                 if z>.08:
                     painter.setPen(QColor('#ffcc82'));painter.drawText(QPointF(xy[0]+5,xy[1]-5),camera['name'])
             if self.camera_message:
@@ -972,7 +974,7 @@ class MotionView(ViewportBase):
         self._gizmo_hits = []
         endpoints = []
         for axis, color, letter, positive, negative in ((0, "#db6375", "X", "Right", "Left"),
-            (1, "#91bb51", "Y", "Top", "Bottom"), (2, "#5795de", "Z", "Back", "Front")):
+            (1, "#91bb51", "Y", "Top", "Bottom"), (2, "#5795de", "Z", "Front", "Back")):
             for sign, name in ((1, positive), (-1, negative)):
                 vector = basis[:2, axis] * 31 * sign
                 end = origin + QPointF(float(vector[0]), float(-vector[1]))

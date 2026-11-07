@@ -33,11 +33,12 @@ def context(root,project):
                 sources=camera['sources'],anchor_sources=anchor['sources'],model=camera.get('model'))
 
 
-def transform_motion(inp,out,transform,progress=lambda:None,prepend_tpose=False,symmetric_rest=False):
+def transform_motion(inp,out,transform,progress=lambda:None,prepend_tpose=False,symmetric_rest=False,reference_transform=None):
     """Stream root transforms; optionally replace only exported rest offsets."""
     from scipy.spatial.transform import Rotation
     import warnings
     transform=validate_transform(transform);rotation=transform[:3,:3];translation=transform[:3,3]
+    reference_rotation=rotation if reference_transform is None else validate_transform(reference_transform)[:3,:3]
     channels=0;root_seen=False;root_order=None
     if symmetric_rest:
         from .export_options import read_header
@@ -92,7 +93,7 @@ def transform_motion(inp,out,transform,progress=lambda:None,prepend_tpose=False,
         if first==0 and prepend_tpose:
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore',message='Gimbal lock detected')
-                reference=Rotation.from_matrix(rotation).as_euler(root_order)
+                reference=Rotation.from_matrix(reference_rotation).as_euler(root_order)
             pose=np.zeros(channels);pose[:3]=positions[0];pose[3:6]=np.rad2deg(reference)
             out.write((' '.join(f'{v:.9f}' for v in pose)+'\n').encode('ascii'))
             previous=reference
