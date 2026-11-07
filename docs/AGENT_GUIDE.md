@@ -344,8 +344,8 @@ and frame/image/camera pairing separately.
 `mocap/source_export_dialog.py` supplies source export options.
 `biped_bvh.py` adapts PR #18's Character Studio naming and uniform ZXY
 conversion for all 52 joints, including fingers. `bvh_profile` propagates through
-every person/take export request; reject unknown profiles. Generic output remains
-a byte copy when no placement/T-pose preparation is needed. Biped uses bounded
+every person/take export request; reject unknown profiles. Generic output applies
+the common output heading to the root while retaining other channels. Biped uses bounded
 128-frame batches; only placement/T-pose preparation needs a temporary intermediate
 file, which is closed on success/error/cancellation. Preserve original offsets,
 units, timing, physical keyed rotations and source caches. Uniform Euler order can
@@ -358,6 +358,22 @@ shared-scene guards, generation checks and atomic destination replacement in
 `fbx_export.py`/`export_copy.py`. Unchecked FBX output must remain identical.
 The optional leading pose is animation, not a replacement bind pose; validate
 both original-frame and fractional-frame suffix poses in Blender after changes.
+
+`motion_heading.py` defines the output-only half-turn around Y (Blender's Z),
+mapping the previous captured +Y-facing Blender convention to PMX's -Y.
+Keep inference, correction caches, `SceneTake.transform`, scene-camera receipts
+and `camera_tracks` native. Apply the heading once, after shared placement, at
+viewport/source-export/character-export boundaries. Rotate exported camera and
+PC2 world data consistently, while video-overlay projection stays native.
+Retargeted takes are identified by their `source` field; imported rest and
+face-only characters retain their native orientation. Leading reference poses
+retain native orientation at the transformed initial root position. Existing
+projects need no inference or retarget rerun; existing export files need reexport.
+Saved orbit cameras carry `heading_version: 1`; unmarked older cameras are
+transported on read (including target, pan and yaw), without rewriting project
+files. Preserve this marker on Save Project As to avoid applying the turn twice.
+Run `runtime/python.exe -X utf8 -m unittest discover -s tests -p "test_motion_heading*.py" -v`
+for the output/preview and export regressions.
 
 ### Portable Blender export implementation
 
@@ -421,7 +437,8 @@ runtime dependency, source motion or contact change is part of export.
 - **File > Import Character...** accepts Mixamo-style FBX, VRM and PMX, and adds the character in rest pose below people. Up to eight characters per project are supported.
 - Right-click the character and choose **Retarget > [source person]**. Review via timeline; row checkboxes control visibility. Custom bone mapping is not implemented. Unsupported or incomplete mappings must not be silently relabeled.
 - The source's applied contact timings are used. **Apply Correction** refreshes linked characters; after other source changes retarget again. Targets that cannot be reached do not cause bone stretching. Different limb lengths can change travel distance, and editing may be required in a 3D tool.
-- **Export Character...** offers FBX with or without character mesh, and VMD for PMX characters. VMD is sampled at 30 fps for the same PMX model; facial motion and hair/clothing physics are not generated. Character FBX preserves its imported rest hierarchy and keys body bones, not the armature object. The character viewport uses original-resolution base-color textures with simplified lighting. Texture caches are prepared off the GUI thread, independently of motion; existing characters prepare them on first display.
+- **Export Character...** offers FBX with or without character mesh, and VMD for PMX characters. VMD is sampled at 30 fps for the same PMX model. Optional **Capture Face** in motion settings runs per-actor native MediaPipe expression capture with ExMR/FlowHMR/GVHMR reconstruction and combines it during normal character retargeting. Smoothing and bounded gap estimation default on; **File > Capture Face...** provides their independent switches and the advanced manual route. Native scores include non-deforming `_neutral`, omit `tongueOut`, and map only to compatible character shapes. MMD conversion is approximate, not phoneme recognition. See [face capture](FACE_CAPTURE.md). Hair/clothing physics are not generated. Character FBX preserves its imported rest hierarchy and keys body bones, not the armature object. The character viewport uses base-color textures with simplified lighting; source dimensions are preserved within the preview budget, with explicit per-image downsampling warnings above it. See [PMX compatibility](PMX_COMPATIBILITY.md). Texture caches are prepared off the GUI thread, independently of motion; existing characters prepare them on first display.
+- Facial continuity preserves raw observed scores and separate detection/interpolation/prediction masks. A blocked actor or ambiguous multiple faces must reset temporal propagation; never report estimates as detections or temporal reliability as accuracy. New face algorithm hashes invalidate only automatic facial receipts: rerun Reconstruct and Retarget, retaining body cache identities and old generations. Five-channel tracks and the historically GPL-licensed `face/solver.py` remain supported; new capture uses `face/blendshapes.py` and `face/temporal.py`, not that geometric solver. The existing Ready isolated face runtime supports native scores without a package reinstall.
 - A separate Blender runtime is used for character import, rig evaluation and baking/export; the user need not open Blender for the app workflow. Preserve upstream licenses and the bundled Blender environment. See [character retargeting](USER_GUIDE.md#character-retargeting) and [FBX/Blender](USER_GUIDE.md#fbx-and-blender).
 - MAMMA retargeting must use `mocap.mamma_body.body_path(project)`, including its actor-specific folded shape data. Never substitute the standard SMPL-X body used by ExMR/GVHMR, or require that extra model for a MAMMA-only workflow.
 

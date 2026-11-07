@@ -15,6 +15,8 @@ animated fingers. Standard correction, retargeting and FBX controls apply.
 
 ## Character retargeting
 
+For PMX spine conventions, missing textures, preview texture budgets and model repair guidance, see [PMX compatibility](PMX_COMPATIBILITY.md).
+
 Transfer a reconstructed person's motion to a character without running AI
 inference again. Supported targets are **Mixamo FBX**, **VRM** and **PMX** humanoids.
 
@@ -51,11 +53,25 @@ Only mapped body/finger bones and necessary body helpers receive animation;
 the armature object stays unkeyed.
 Hair, clothing and secondary physics are not simulated.
 
+Optional **Capture Face** in the motion settings captures expressions during
+**Reconstruct 3D** for ExMR, FlowHMR and GVHMR. Normal character retargeting then
+includes the source person's native MediaPipe expressions. Smoothing and short-gap
+estimation are enabled by default; long detection gaps fade to neutral. Estimates
+improve continuity but cannot recover unseen facial movements. **File > Capture
+Face...** remains available for a separate face video or manually selected region,
+with independent **Smooth expressions** and **Estimate brief detection gaps**
+switches. The separate `Setup_Face.cmd` runtime runs locally on CPU; an existing
+Ready face runtime needs no reinstall for native expressions. After upgrading
+from five-channel capture, run **Reconstruct 3D** with face capture enabled and
+then retarget to update the character; old saved tracks remain readable. Character
+models need compatible facial shapes, and older PMX imports may need reimporting
+to include them. See [setup, timing and limitations](FACE_CAPTURE.md).
+
 | Export option | Result |
 | --- | --- |
 | **FBX + Include character mesh** | Character mesh, skeleton and animation. |
 | **FBX, mesh unchecked** | Skeleton and animation only. |
-| **VMD (PMX characters only)** | Body/finger motion sampled at 30 fps for the same PMX model in MMD. Facial animation and physics are not generated. |
+| **VMD (PMX characters only)** | Body/finger motion and any applied facial morphs sampled at 30 fps for the same PMX model in MMD. Physics is not generated. |
 
 Separate takes produce separate files. Both FBX options preserve the imported
 character's original bone hierarchy and rest pose separately from its animation;
@@ -689,6 +705,17 @@ The selected, applied result is exported. Each checked
 person/take gets a separate named file and rig; duplicate filenames get suffixes.
 People exports use the viewport's shared placement. Takes retain their own frame
 counts; align their start times when combining different source intervals.
+
+Captured motion uses a common 180-degree turn around the vertical axis in the
+preview and exports, changing the previous Blender +Y-facing convention to -Y
+to match PMX. In the application's Y-up coordinates this maps -Z to +Z.
+Root travel, turns, shared actor placement and exported cameras turn together;
+individual actors are not independently aligned to their first frame. This
+also applies to retargeted character FBX/VMD and PEAR preview. Imported rest
+poses, face-only characters and the optional leading T-pose retain their native
+orientation. Existing projects use the new convention when reopened/exported;
+previously exported files must be exported again. Inference and contact caches
+are not rewritten and reconstruction is not required.
 
 Source-person exports use a 52-bone hierarchy with **Hips** as root and plain
 anatomical names by default. The Biped profile renames exported joints as described
