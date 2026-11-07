@@ -6,7 +6,7 @@ A native Windows app that turns video into editable human animation. Review and
 export motion with AI processing running locally.
 
 This fork integrates the [long-video ExMR adaptation](docs/LONG_VIDEO_EXMR.md)
-and [original PMX retargeting](docs/PMX_COMPATIBILITY.md) from upstream commit
+and [native two-spine PMX support](docs/PMX_TWO_SPINE.md) on upstream commit
 `75cda26`. Both features are included in the source; no standalone patch installer
 is needed. See the [fork integration and validation notes](docs/FORK_INTEGRATION.md)
 for scope, regression checks and updates.

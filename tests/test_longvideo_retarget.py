@@ -1,4 +1,4 @@
-"""CPU regressions for source NPZ reuse and upstream body/finger baking.
+"""CPU regression tests for selective NPZ reads in long-take retargeting.
 
 Uses real NPZ/NPY files and the actual surface/bake arithmetic. Small model and
 Blender API stand-ins avoid requiring weights, CUDA, or a Blender installation.
@@ -288,13 +288,27 @@ class RetargetArrayReadTests(unittest.TestCase):
                 observed.assert_closed(self, {'mesh-asset.npz', 'mesh-frames.npy'})
                 self.assertEqual(observed.reads['mesh-asset.npz', 'packed'], 1)
 
-    def test_upstream_bake_preserves_body_fingers_trajectory_and_timing(self):
+    def test_bake_reads_selected_fields_once_and_preserves_motion(self):
         for count in (4, 17):
             with self.subTest(frames=count), tempfile.TemporaryDirectory() as temporary:
                 bake, keyed, scene, trajectory, theta, fingers, angles = bake_fixture(Path(temporary), count)
                 with ArrayReads() as observed:
+                    record = bake.key_values
+
+                    def record_after_close(*args):
+                        observed.assert_closed(self, {'source-frames.npy'})
+                        record(*args)
+
+                    bake.key_values = record_after_close
                     _, names = bake.bake('pmx', 'motion', 'stance')
+                    for filename, keys in [('motion-pmx-stance.npz', ('root', 'names', 'world')),
+                                           ('motion-pmx-rotation.npz', ('world',)),
+                                           ('source-asset.npz', ('rest', 'ends')),
+                                           ('motion-source.npz', ('fps',))]:
+                        for key in keys:
+                            self.assertEqual(observed.reads[filename, key], 1, (filename, key))
                     self.assertFalse(any(key == 'unused' for filename, key in observed.reads))
+                    observed.assert_closed(self)
                 np.testing.assert_array_equal(keyed['pose.bones["全ての親"].location'], trajectory @ bake.A.T)
                 waist = keyed['pose.bones["腰"].rotation_quaternion']
                 np.testing.assert_allclose(Rotation.from_quat(waist[:, [1, 2, 3, 0]]).as_matrix(),
@@ -314,6 +328,23 @@ class RetargetArrayReadTests(unittest.TestCase):
                 self.assertEqual((scene.frame_start, scene.frame_end), (1, count))
                 self.assertEqual(scene.render.fps / scene.render.fps_base, 30.)
 
+    def test_bake_finger_failure_closes_all_inputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bake, *_ = bake_fixture(Path(temporary), 4)
+            original = bake.align
+            calls = 0
+
+            def interrupted(*args):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise RuntimeError('finger bake interrupted')
+                return original(*args)
+
+            with ArrayReads() as observed, patch.object(bake, 'align', interrupted):
+                with self.assertRaisesRegex(RuntimeError, 'finger bake interrupted'):
+                    bake.bake('pmx', 'motion', 'stance')
+                observed.assert_closed(self)
 
 
 if __name__ == '__main__':

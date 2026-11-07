@@ -344,6 +344,7 @@ class CharacterWorkspace:
 
     def character_draws(self):
         from bisect import bisect_right
+        from .motion_heading import character_transform
         time_=self.motion_view.scene_time
         for c in self.characters:
             if not c.get('visible',True):continue
@@ -354,7 +355,7 @@ class CharacterWorkspace:
                 take=c['takes'][i] if i>=0 else None
                 if take is not None and time_>=take['start']+take['frames']/take['fps']:take=None
                 if take is None:continue
-                path=self.character_path(c['animation']+'/'+take['folder']);frame=int((time_-take['start'])*take['fps']+1e-6);transform=take.get('transform')
+                path=self.character_path(c['animation']+'/'+take['folder']);frame=int((time_-take['start'])*take['fps']+1e-6);transform=character_transform(take)
             data=self.character_assets.get(str(path))
             if not data:
                 self.character_loader.request(path,frame,self.character_path(c['asset']));continue

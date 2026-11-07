@@ -31,22 +31,11 @@ def legacy_camera():
                 target=[5.25, .95, -5.3], extra={'retained': [2, 4]})
 
 
-def half_turn_camera():
-    """A camera actually saved while version 1 rotated the displayed world."""
-    camera=legacy_camera()
-    for key in ('pan', 'scene_center', 'target'):
-        camera[key][0]*=-1
-        camera[key][2]*=-1
-    camera['yaw']+=np.pi
-    camera['heading_version']=1
-    return camera
-
-
 class View:
     def __init__(self):
         self.yaw=.3; self.pitch=.2; self.distance=4.
-        self.pan=np.zeros(3); self.scene_center=np.array([5., .85, -5.])
-        self.root=np.array([5., 1., -5.]); self.auto_fit=True
+        self.pan=np.zeros(3); self.scene_center=np.array([-5., .85, 5.])
+        self.root=np.array([-5., 1., 5.]); self.auto_fit=True
 
     def target(self):
         result=self.scene_center.copy()
@@ -70,28 +59,17 @@ def camera_space(camera, points):
 
 
 class SavedHeadingCameraTests(unittest.TestCase):
-    def test_unmarked_native_camera_preserves_composition_and_input(self):
+    def test_old_camera_preserves_projected_composition_and_input(self):
         camera=legacy_camera(); before=copy.deepcopy(camera)
         updated=upgrade_saved_camera(camera)
         points=np.array([[5., 1., -5.], [5.4, 1.7, -4.8], [4.6, .1, -5.3]])
-        np.testing.assert_array_equal(camera_space(updated, points),camera_space(camera, points))
+        turned=points.copy(); turned[:, [0, 2]]*=-1
+        np.testing.assert_allclose(camera_space(updated, turned),camera_space(camera, points),atol=2e-14)
         self.assertEqual(camera, before)
-        self.assertEqual(updated['heading_version'],2)
-        self.assertEqual(HEADING_VERSION,2)
-        self.assertEqual({k:v for k,v in updated.items() if k!='heading_version'},camera)
+        self.assertEqual(updated['heading_version'],HEADING_VERSION)
         self.assertEqual(updated['extra'],camera['extra'])
         updated['extra']['retained'].append(8)
         self.assertEqual(camera, before)
-
-    def test_version_one_camera_restores_native_composition_once(self):
-        camera=half_turn_camera(); before=copy.deepcopy(camera)
-        updated=upgrade_saved_camera(camera)
-        points=np.array([[5., 1., -5.], [5.4, 1.7, -4.8], [4.6, .1, -5.3]])
-        turned=points.copy(); turned[:, [0, 2]]*=-1
-        np.testing.assert_allclose(camera_space(updated, points),camera_space(camera, turned),atol=2e-14)
-        self.assertEqual(updated,dict(legacy_camera(),heading_version=2))
-        self.assertEqual(upgrade_saved_camera(updated),updated)
-        self.assertEqual(camera,before)
 
     def test_new_camera_roundtrip_is_idempotent_and_detached(self):
         camera=upgrade_saved_camera(legacy_camera())
@@ -105,30 +83,25 @@ class SavedHeadingCameraTests(unittest.TestCase):
         self.assertNotEqual(restored['pan'][0],camera['pan'][0])
 
     def test_legacy_camera_without_target_is_supported(self):
-        for camera in (legacy_camera(),half_turn_camera()):
-            del camera['target']
-            result=upgrade_saved_camera(camera)
-            self.assertNotIn('target',result)
-            self.assertEqual(result['scene_center'],[5.,.85,-5.])
-            self.assertEqual(result['pan'],[.25,.1,-.3])
-            self.assertAlmostEqual(result['yaw'],-2.4)
-
-    def test_unknown_camera_version_is_rejected(self):
-        with self.assertRaisesRegex(ValueError,'Unsupported saved camera heading version'):
-            upgrade_saved_camera(dict(legacy_camera(),heading_version=3))
+        camera=legacy_camera(); del camera['target']
+        result=upgrade_saved_camera(camera)
+        self.assertNotIn('target',result)
+        self.assertEqual(result['scene_center'],[-5.,.85,5.])
+        self.assertEqual(result['pan'],[-.25,.1,.3])
+        self.assertAlmostEqual(result['yaw'],camera['yaw']+np.pi)
 
     def test_workspace_restore_keeps_distant_actor_centered_without_writing(self):
         with tempfile.TemporaryDirectory() as temporary:
             path=Path(temporary)/'project.json'
-            path.write_text(json.dumps({'view':{'camera':half_turn_camera()}}),encoding='utf-8')
+            path.write_text(json.dumps({'view':{'camera':legacy_camera()}}),encoding='utf-8')
             original=path.read_bytes()
             camera=json.loads(original)['view']['camera']; before=copy.deepcopy(camera)
             host=SimpleNamespace(motion_view=View(),_workspace_camera=camera,people_root=None,scene_data=None)
             for _ in range(3):
                 ModelWorkspace.restore_workspace_camera(host)
-                np.testing.assert_allclose(host.motion_view.target(),[5.25,.95,-5.3],atol=1e-14)
-                np.testing.assert_allclose(host.motion_view.pan,[.25,.1,-.3],atol=1e-14)
-                self.assertAlmostEqual(host.motion_view.yaw,-2.4)
+                np.testing.assert_allclose(host.motion_view.target(),[-5.25,.95,5.3],atol=1e-14)
+                np.testing.assert_allclose(host.motion_view.pan,[-.25,.1,.3],atol=1e-14)
+                self.assertAlmostEqual(host.motion_view.yaw,-2.4+np.pi)
             self.assertFalse(host.motion_view.auto_fit)
             self.assertFalse(hasattr(host.motion_view,'heading_version'))
             self.assertEqual(camera,before)

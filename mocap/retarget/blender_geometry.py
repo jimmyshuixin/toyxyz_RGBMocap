@@ -1,8 +1,11 @@
 import bpy,json,numpy as np
-from .mapping import A
+from .mapping import A,real_bone_mapping
 from .file_paths import io_path
 def register(OUT,kind,rig,arm,mapping,rest):
- mapped={name:i for i,name in enumerate(mapping)};bone_map={}
+ mapped=real_bone_mapping(mapping,rig.get('body_profile'));bone_map={}
+ missing=sorted(set(mapped)-{b.name for b in arm.data.bones})
+ if missing:raise ValueError('Character bones changed after import: '+', '.join(missing)+'. Import the character again.')
+ virtual_slots=[i for i in range(22) if i not in mapped.values()]
  if kind=='pmx':
   for side,suffix in enumerate(['.L','.R']):
    for stem,joint in [('足D',1+side),('ひざD',4+side),('足首D',7+side),('足先EX',10+side)]:
@@ -26,6 +29,7 @@ def register(OUT,kind,rig,arm,mapping,rest):
      if name==mapping[20+h]:hw[vertex.index,h]+=group.weight
   total=w.sum(1);missing=total<1e-8;w[missing,0]=1.;w/=np.maximum(w.sum(1,keepdims=True),1e-8);weights.append(w);wrist_weights.append(hw)
  v=np.concatenate(vertices);W=np.concatenate(weights);HW=np.concatenate(wrist_weights);height=float(rest[:,1].max()-rest[:,1].min());payload=dict(rest=rest,mesh_names=mesh_names,mesh_counts=mesh_counts)
+ assert not np.any(W[:,virtual_slots]),'Virtual humanoid slots cannot carry mesh weights.'
  counts=[]
  for side in [0,1]:
   foot=7+side;toe=10+side;shin=4+side;p=rest[foot];length=np.linalg.norm(rest[toe]-p);leg=np.linalg.norm(rest[foot]-rest[shin])+np.linalg.norm(rest[shin]-rest[1+side])

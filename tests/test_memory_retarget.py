@@ -1,4 +1,4 @@
-"""CPU regressions for upstream whole-take retarget surface evaluation.
+"""CPU regressions for bounded retarget surface evaluation.
 
 The reference evaluates the complete take with the original LBS equations.
 Fixtures use synthetic skeletons and surfaces, without user/model assets.
@@ -58,17 +58,17 @@ def dense_samples(data, geo, palms):
             probes.append(sample)
         palm = dense_skin(data, geo[f'palm_v{side}'][palms[side]], geo[f'palm_w{side}'][palms[side]])
         hands.append(palm.mean(1))
-    return np.stack(probes, 1), feet, np.stack(hands, 1)
+    return np.stack(probes, 1), np.stack([f[:, :, 1].min(1) for f in feet], 1), np.stack(hands, 1)
 
 
 def dense_pins(data, geo, plan):
-    probes, feet, hands = dense_samples(data, geo, plan['palms'])
+    probes, heights, hands = dense_samples(data, geo, plan['palms'])
     pins = solver.trajectory.support_samples(probes, plan['weights'])
-    pins[:, :, 1] = np.stack([foot[:, :, 1].min(1) for foot in feet], axis=1)
+    pins[:, :, 1] = heights
     result = np.concatenate((pins, hands), axis=1)
     if 'skin_bias' in plan:
         result += plan['skin_bias']
-    return result, feet
+    return result, heights
 
 
 def contact_fixture(count):
@@ -107,7 +107,7 @@ def contact_fixture(count):
     return data, geo, palms
 
 
-class UpstreamRetargetGeometryTests(unittest.TestCase):
+class BoundedRetargetGeometryTests(unittest.TestCase):
     def assert_tree_close(self, actual, expected):
         if isinstance(expected, dict):
             self.assertEqual(actual.keys(), expected.keys())
@@ -135,11 +135,42 @@ class UpstreamRetargetGeometryTests(unittest.TestCase):
                     before = deepcopy(data)
                     expected = dense_samples(data, geo, palms)
                     actual = solver.geometry_samples(data, geo, palms)
-                    self.assert_tree_close(actual, expected)
+                    for a, e in zip(actual, expected):
+                        self.assertEqual(a.dtype, e.dtype)
+                        # Different BLAS row counts can round differently in
+                        # the input precision, which the adapter must preserve.
+                        tolerance = max(1e-13, 16 * np.finfo(dtype).eps)
+                        np.testing.assert_allclose(a, e, rtol=tolerance, atol=tolerance)
                     for key in before:
                         np.testing.assert_array_equal(data[key], before[key])
 
-    def test_palm_selection_uses_first_contact_frame(self):
+    def test_large_mesh_uses_smaller_blocks_and_keeps_every_vertex(self):
+        data, geo, palms = fixture(257, vertices=5000)
+        calls = []
+        original = solver.skin
+
+        def observe(frame, vertices, weights):
+            calls.append((len(frame['world']), len(vertices)))
+            return original(frame, vertices, weights)
+
+        with patch.object(solver, 'skin', side_effect=observe):
+            probes, heights, hands = solver.geometry_samples(data, geo, palms)
+        self.assertEqual(probes.shape, (257, 4, 3))
+        self.assertEqual(heights.shape, (257, 2))
+        self.assertEqual(hands.shape, (257, 2, 3))
+        for count, vertices in calls:
+            self.assertLessEqual(count, 128)
+            self.assertLessEqual(count * vertices * 3 * 8 * 4, 32 * 1024**2)
+        for vertices in (5000, 5001):
+            self.assertEqual(sum(n for n, v in calls if v == vertices), 257)
+        for side in (0, 1):
+            # Boundary frames are independently evaluated without another full surface.
+            for index in (0, 68, 69, 127, 128, 256):
+                one = dict(data, world=data['world'][index:index + 1], points=data['points'][index:index + 1])
+                expected = dense_skin(one, geo[f'foot_v{side}'], geo[f'foot_w{side}'])
+                self.assertAlmostEqual(heights[index, side], float(expected[:, :, 1].min()), places=13)
+
+    def test_palm_selection_evaluates_only_the_selected_frame(self):
         data, geo, palms = fixture(257)
         active = np.zeros((257, 4), dtype=bool)
         active[149:181, 2] = True
@@ -148,7 +179,17 @@ class UpstreamRetargetGeometryTests(unittest.TestCase):
         for side, first in ((0, 149), (1, 0)):
             full = dense_skin(data, geo[f'palm_v{side}'], geo[f'palm_w{side}'])
             expected.append(np.argsort(full[first, :, 1])[:max(4, min(12, len(full[first]) // 4))])
-        plan = solver.setup_targets(data, deepcopy(data), active, geo)
+        original = solver.skin
+        sampled = []
+
+        def observe(frame, vertices, weights):
+            if len(vertices) in (37, 38):
+                sampled.append(len(frame['world']))
+            return original(frame, vertices, weights)
+
+        with patch.object(solver, 'skin', side_effect=observe):
+            plan = solver.setup_targets(data, deepcopy(data), active, geo)
+        self.assertEqual(sampled, [1, 1])
         for actual, selected in zip(plan['palms'], expected):
             np.testing.assert_array_equal(actual, selected)
 
@@ -160,11 +201,19 @@ class UpstreamRetargetGeometryTests(unittest.TestCase):
         plan = dict(palms=palms, weights=rng.uniform(size=(257, 2)),
                     goals=rng.normal(size=(257, 4, 3)), skin_bias=rng.normal(0, .001, size=(257, 4, 3)))
         actual = solver.eval_pins(data, geo, plan)
-        self.assert_tree_close(actual, dense_pins(data, geo, plan))
+        for a, e in zip(actual, dense_pins(data, geo, plan)):
+            np.testing.assert_allclose(a, e, rtol=1e-13, atol=1e-13)
         with patch.object(solver, 'eval_pins', side_effect=dense_pins):
             expected_score = solver.score(data, data, active, geo, plan)
         score = solver.score(data, data, active, geo, plan)
         self.assertEqual(score, expected_score)
+
+    def test_clearance_height_reduction_matches_all_surface_vertices(self):
+        data, geo, _ = fixture(257)
+        for side in (0, 1):
+            vertices, weights = geo[f'foot_v{side}'], geo[f'foot_w{side}']
+            expected = dense_skin(data, vertices, weights)[:, :, 1].min(1)
+            np.testing.assert_allclose(solver._skin_heights(data, vertices, weights), expected, rtol=1e-13, atol=1e-13)
 
     def test_full_refine_and_score_match_dense_geometry(self):
         data, geo, _ = contact_fixture(129)
@@ -172,10 +221,13 @@ class UpstreamRetargetGeometryTests(unittest.TestCase):
         active[7:56, 0] = True
         active[42:99, 1] = True
 
+        def whole_take(frame, vertices, weights):
+            yield 0, dense_skin(frame, vertices, weights)
+
         # Exercise the complete solver, including FK release, iterative free
         # clearance, contact planning and early-stop decisions in both runs.
         with patch.dict(os.environ, {'STOP_STAGNATION': '1'}):
-            with patch.object(solver, 'geometry_samples', side_effect=dense_samples):
+            with patch.object(solver, '_skin_blocks', side_effect=whole_take):
                 reference = solver.refine(deepcopy(data), deepcopy(data), active, geo)
                 score = solver.score(reference[0], data, active, geo, reference[1])
             actual = solver.refine(deepcopy(data), deepcopy(data), active, geo)

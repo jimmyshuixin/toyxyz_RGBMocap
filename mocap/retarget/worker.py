@@ -45,11 +45,15 @@ def main(args):
         invoke('import',out,job['file'])
         result=json.loads((out/'import.json').read_text(encoding='utf8'))
     elif job['mode']=='export':
+        import numpy as np
+        from mocap.motion_heading import character_transform
         for i,(take,target) in enumerate(zip(job['takes'],job['files'])):
             report(f'Exporting character take {i+1}/{len(job["takes"])}')
             folder=Path(job['animation'])/take['folder']
             options=dict(format=job.get('format','fbx'),include_mesh=job.get('include_mesh',True))
-            invoke('export',out,folder,target,json.dumps(take.get('transform')),job['source_name'],json.dumps(options))
+            transform=character_transform(take)
+            if transform is not None:transform=np.asarray(transform).tolist()
+            invoke('export',out,folder,target,json.dumps(transform),job['source_name'],json.dumps(options))
         result=dict(files=job['files'])
     elif job['mode']=='face':
         from .face_track import load_track
@@ -80,9 +84,6 @@ def main(args):
         from .source import prepare,stamp
         from .pipeline import run
         asset=Path(job['asset']);kind=json.loads((asset/'import.json').read_text(encoding='utf-8'))['kind'];takes=[]
-        if kind=='pmx':
-            from .pmx_validation import validate_asset
-            validate_asset(asset)
         for i,take in enumerate(job['takes']):
             folder=out/f'take-{i}';folder.mkdir()
             report(f'Take {i+1}/{len(job["takes"])}: preparing selected source')

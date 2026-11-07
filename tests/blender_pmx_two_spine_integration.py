@@ -1,6 +1,5 @@
 """Run inside Blender against a separately supplied, licensed PMX fixture.
 
-The historical filename is retained; only upstream three-spine PMX rigs are supported.
 The folder must contain a real import and outputs from
 pmx_two_spine_motion_fixture.py. This exercises RGB MoCap's actual bake/preview
 and custom VMD exporter, then imports that VMD into a fresh native PMX rig.
@@ -25,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'third_party/character_import'))
 
-from mocap.retarget.mapping import A, PMX
+from mocap.retarget.mapping import A, VIRTUAL_SPINE1, real_bone_mapping
 from mocap.retarget.blender_io import main as character_operation
 from mmd_tools.core import vmd
 from mmd_tools.core.vmd.importer import VMDImporter
@@ -109,8 +108,7 @@ def main():
     rig = json.loads((folder / 'pmx-rig.json').read_text(encoding='utf-8'))
     with np.load(folder / 'motion-pmx-stance.npz') as data:
         names, points, world = data['names'], data['points'], data['world']
-    assert names.tolist() == PMX, 'Import a PMX supported by the upstream 22-bone mapping'
-    mapping = {name: slot for slot, name in enumerate(names.tolist())}
+    mapping = real_bone_mapping(names, rig.get('body_profile'))
     frame_count = len(points)
     frames = list(range(1, frame_count + 1))
     mesh_frames = sorted({1, frame_count, 1 + frame_count // 4,
@@ -120,7 +118,9 @@ def main():
     character_operation(['bake', str(folder), 'pmx'])
     arm = bpy.data.objects[rig['armature']]
     original_topology = topology(arm)
+    assert VIRTUAL_SPINE1 not in arm.data.bones
     keyed = json.loads((folder / 'bake.json').read_text(encoding='utf-8'))['keyed_bones']
+    assert VIRTUAL_SPINE1 not in keyed
     assert all(name in arm.data.bones for name in keyed)
     baked, baked_meshes = sample(arm, mapping, frames, mesh_frames)
 
@@ -144,13 +144,16 @@ def main():
     motion = vmd.File()
     motion.load(filepath=str(target))
     track_names = sorted(motion.boneAnimation.keys())
-    assert all(name in track_names for name in ('上半身', '上半身1', '上半身2'))
+    assert VIRTUAL_SPINE1 not in track_names
+    if rig['body_profile']['virtual_slots']:
+        assert '上半身1' not in track_names
+        assert all(name in track_names for name in ('上半身', '上半身2'))
 
     # Fresh native import is intentional: the VMD root already contains world
     # placement, so importing it onto RGB's translated rest object double-shifts it.
     bpy.ops.wm.read_factory_settings(use_empty=True)
     addon_utils.enable('mmd_tools', default_set=False, persistent=False)
-    bpy.ops.mmd_tools.import_model(filepath=str(model), types={'MESH', 'ARMATURE', 'MORPHS'},
+    bpy.ops.mmd_tools.import_model(filepath=str(model), types={'MESH', 'ARMATURE'},
                                    scale=.08, log_level='ERROR')
     arm = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
     assert_topology_same(original_topology, topology(arm))
@@ -168,7 +171,7 @@ def main():
     assert hashlib.sha256(model.read_bytes()).hexdigest() == model_hash
 
     record = dict(result='PASS', blender=bpy.app.version_string, model=model.name,
-                  model_sha256=model_hash, profile='upstream_pmx_22',
+                  model_sha256=model_hash, profile=rig['body_profile']['id'],
                   frames=frame_count, mesh_sample_frames=mesh_frames,
                   real_body_bindings=len(mapping), native_bone_count=len(arm.data.bones),
                   native_bones_bind_mesh_weights_unchanged=True,

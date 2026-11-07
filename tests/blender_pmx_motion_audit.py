@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / 'third_party/character_import'))
 sys.path.insert(0, str(ROOT / 'tests'))
 
 from blender_pmx_two_spine_integration import topology, assert_topology_same, mesh_positions
-from mocap.retarget.mapping import A, PMX
+from mocap.retarget.mapping import A, real_bone_mapping
 from mocap.retarget.blender_io import main as operation
 from mmd_tools.core import vmd
 from mmd_tools.core.vmd.importer import VMDImporter
@@ -60,9 +60,7 @@ def main():
         addon_utils.enable('mmd_tools', default_set=False, persistent=False)
         rig = json.loads((folder / 'pmx-rig.json').read_text(encoding='utf-8'))
         with np.load(folder / 'motion-pmx-stance.npz', allow_pickle=False) as data:
-            names = data['names'].tolist()
-            assert names == PMX, 'Import a PMX supported by the upstream 22-bone mapping'
-            mapping = {name: slot for slot, name in enumerate(names)}
+            mapping = real_bone_mapping(data['names'].tolist(), rig.get('body_profile'))
             expected_points, expected_world = data['points'], data['world']
         count = len(expected_points)
         frames = sorted({1, count, 1 + count // 4, 1 + count // 2, 1 + 3 * count // 4})

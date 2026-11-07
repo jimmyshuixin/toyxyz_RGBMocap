@@ -4,6 +4,24 @@ from pathlib import Path
 import numpy as np
 from . import solver as m, stabilize as stab, surface, measured as t, foot_calibration
 from .calibration import desired,reorient_pose
+from .mapping import real_bone_mapping
+
+def _target_virtual_slots(folder, kind, target):
+    """Check the paired canonical/rig metadata before solving any contacts."""
+    rig_path = Path(folder) / f'{kind}-rig.json'
+    rig = json.loads(rig_path.read_text(encoding='utf-8')) if rig_path.exists() else {}
+    if not isinstance(rig, dict):
+        raise ValueError('Invalid character rig metadata.')
+    profile = rig.get('body_profile')
+    real_bone_mapping(target['names'], profile)
+    slots = np.asarray(target['virtual_slots']) if 'virtual_slots' in target else np.empty(0, np.int64)
+    if slots.ndim != 1 or (slots.size and slots.dtype.kind not in 'iu'):
+        raise ValueError('Canonical virtual slots must be an integer array.')
+    expected = profile['virtual_slots'] if profile is not None else []
+    if slots.tolist() != expected:
+        raise ValueError('Canonical and rig virtual slots differ. Import the character again.')
+    return slots
+
 
 def run(folder,kind):
  original_safe=m.source_safe_reach;original_two=m.two_bone
@@ -26,8 +44,9 @@ def _run(folder,kind):
  def two_bone(base,root,goals,planned,src):return original_two(base,root,goals,planned,dict(src,world=base['world']))
  m.source_safe_reach=safe_reach;m.two_bone=two_bone
  started=time.perf_counter();geo=np.load(OUT/f'{kind}-contact-geometry.npz');target=np.load(OUT/f'{kind}-canonical.npz');rest=target['rest']
+ virtual_slots=_target_virtual_slots(OUT,kind,target)
  ratio=np.mean(np.linalg.norm(rest[[4,5]]-rest[[1,2]],axis=1)+np.linalg.norm(rest[[7,8]]-rest[[4,5]],axis=1))/np.mean(np.linalg.norm(source['rest'][[4,5]]-source['rest'][[1,2]],axis=1)+np.linalg.norm(source['rest'][[7,8]]-source['rest'][[4,5]],axis=1))
- local=m.baseline(source['world'],source['rest'],rest);local,cal=m.corrected_world(local,m.PARENTS,label,geo)
+ local=m.baseline(source['world'],source['rest'],rest,virtual_slots=virtual_slots);local,cal=m.corrected_world(local,m.PARENTS,label,geo)
  root=source['points'][:,0]*ratio;root[:,1]+=rest[0,1]-source['rest'][0,1]*ratio;p,w=m.fk(local,rest,root)
  raw=dict(local=local,root=root,points=p,world=w,rest=rest,names=target['names'],ratio=ratio,**cal)
  base,_=m.characterize(raw,raw,source,native);want=desired(source['world'],neutral,rest)

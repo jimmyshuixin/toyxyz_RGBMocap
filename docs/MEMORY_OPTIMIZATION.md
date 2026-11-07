@@ -16,11 +16,13 @@ segments. Resource Safety and the existing OOM recovery remain enabled.
   angle buffers that have undergone a non-FP32 conversion keep private per-layer
   cache histories, including after conversion back to FP32, because the upstream
   long-sequence table is generated in FP32. Checkpoint keys are unchanged.
-- **Character source preparation:** reuse the static NPZ mesh asset and preserve
-  its original values. Body retargeting and Blender baking have been restored to
-  upstream `75cda265`; the fork's bounded foot/palm surface evaluation and
-  single-read bake optimization are withdrawn. Whole-take geometry allocations
-  and repeated bake archive reads therefore follow the original behavior.
+- **Character contact retargeting:** evaluate all eligible foot/palm vertices in
+  bounded frame blocks, immediately reducing them to the same contact probes and
+  minimum heights. Preserve global contact planning, iteration limits, selected
+  vertices and float64 arithmetic. Select palm reference vertices using only the
+  required reference frame. Geometry work uses a 32 MiB temporary-storage estimate,
+  at most 128 frames, and an unavoidable one-frame minimum; this is not a whole-job
+  RAM limit.
 - **HTD refinement:** detach optimized parameters before IK and run only that
   postprocessing under `torch.no_grad()`. The actual optimization retains gradients.
 
@@ -31,12 +33,10 @@ whole-application RAM/VRAM guarantee.
 
 ## Quality checks
 
-The tests compare the retained optimized allocation paths with original equations,
+The tests compare the original equations with the optimized allocation paths,
 including frame-window boundaries, long/short cache reuse, precision/device
 migration, cancellation cleanup, all eligible surface vertices and the HTD
-optimization/postprocessing gradient boundary. `test_memory_retarget.py` now checks
-the restored whole-take geometry and contact calculations, without asserting
-bounded allocation. They use synthetic inputs without
+optimization/postprocessing gradient boundary. They use synthetic inputs without
 licensed model assets.
 
 ```text
@@ -44,7 +44,7 @@ runtime_exmr\python.exe -X utf8 -B -m unittest discover -s tests -p "test_memory
 runtime\python.exe -X utf8 -B -m unittest discover -s tests -p "test_memory_retarget.py" -v
 runtime\python.exe -X utf8 -B -m unittest discover -s tests -p "test_memory_htd.py" -v
 runtime_exmr\python.exe -X utf8 -B -m unittest discover -s tests -p "test_longvideo_*.py" -v
-runtime\python.exe -X utf8 -B -m unittest discover -s tests -p "test_pmx_upstream*.py" -v
+runtime\python.exe -X utf8 -B -m unittest discover -s tests -p "test_pmx_two_spine*.py" -v
 ```
 
 ExMR fixed-feature motion and camera rotations are checked for exact tensor/array
@@ -67,11 +67,7 @@ Do not include videos, licensed geometry, personal filenames or those artifacts
 in a public source package. Validation results must distinguish synthetic
 checks, component measurements and complete real-video runs.
 
-## Historical component validation on 2026-11-07
-
-These measurements predate restoration of upstream character retargeting.
-The contact-surface allocation savings below describe the withdrawn optimization;
-they must not be presented as current retarget memory use.
+## Component validation on 2026-11-07
 
 The frozen comparison source was commit `3cfc5f2`. Tests used the installed pinned
 Windows runtimes; no packages or assets were upgraded. The machine has an NVIDIA
@@ -94,11 +90,7 @@ equal parameters for 60- and 240-frame cases. The postprocessing retained zero
 backward tensors after this change. This is a CPU component test, not a real-video
 HTD or GVHMR accuracy benchmark.
 
-## Historical supplied-video validation on 2026-11-07
-
-The ExMR comparison remains a record of the retained inference changes. The
-retarget comparison below concerns the former bounded geometry implementation,
-not a fresh test of the restored upstream PMX behavior.
+## Complete supplied-video validation on 2026-11-07
 
 The source was a 257.466625-second, 3840x2160 video at approximately 60 fps
 (15,448 source frames). Both versions used the application's unchanged 30 fps
