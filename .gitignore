@@ -36,7 +36,19 @@ __pycache__/
 /character_scenes/
 /artifacts/
 /experiments/
-/tests/
+/tests/*
+!/tests/test_longvideo_attention.py
+!/tests/test_longvideo_identity.py
+!/tests/test_longvideo_models.py
+!/tests/test_longvideo_retarget.py
+!/tests/test_pmx_two_spine.py
+!/tests/test_pmx_two_spine_blender.py
+!/tests/pmx_two_spine_motion_fixture.py
+!/tests/blender_pmx_two_spine_integration.py
+# Historical local patch packages and rollback backups
+/longvideo_patch_backups/
+/rgb-longvideo-patch/
+/rgb-pmx-two-spine-patch/
 /config/local.json
 *.pt
 *.pth

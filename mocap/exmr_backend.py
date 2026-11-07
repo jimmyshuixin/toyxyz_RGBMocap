@@ -148,7 +148,8 @@ def identity(project,stage):
             for name in ('decoders/promptable_decoder.py','meta_arch/sam3d_body.py')} if stage=='exmr_features' else {},
         upstream_api=sha256(UPSTREAM/'ExMR/exmr/pipeline.py'),
         motion_solver={name:sha256(UPSTREAM/'ExMR/exmr'/name) for name in
-            ('model/exmr.py','model/global_traj.py','model/ik.py','geometry/camera.py')} if stage=='exmr' else {},
+            ('model/exmr.py','model/global_traj.py','model/ik.py','geometry/camera.py',
+             'model/layers.py','model/query_batched_attention.py')} if stage=='exmr' else {},
         code=code_hash(Path(__file__)),upstream=sha256(UPSTREAM/'ExMR/RGB_MOCAP_PROVENANCE.json'))
 
 

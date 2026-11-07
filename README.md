@@ -5,6 +5,12 @@
 A native Windows app that turns video into editable human animation. Review and
 export motion with AI processing running locally.
 
+This fork integrates the [long-video ExMR adaptation](docs/LONG_VIDEO_EXMR.md)
+and [native two-spine PMX support](docs/PMX_TWO_SPINE.md) on upstream commit
+`75cda26`. Both features are included in the source; no standalone patch installer
+is needed. See the [fork integration and validation notes](docs/FORK_INTEGRATION.md)
+for scope, regression checks and updates.
+
 ## Sample videos
 
 ### Motion capture
@@ -31,7 +37,7 @@ https://github.com/user-attachments/assets/4c0b290b-4a65-4287-8d22-c63c96b3d080
    in a writable folder where you want to install RGB MoCap, then clone the repository:
 
    ```cmd
-   git clone https://github.com/toyxyz/toyxyz_RGBMocap.git
+   git clone https://github.com/jimmyshuixin/toyxyz_RGBMocap.git
    cd toyxyz_RGBMocap
    ```
 

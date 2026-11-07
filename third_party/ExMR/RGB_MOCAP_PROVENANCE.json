@@ -3,5 +3,11 @@
   "commit": "57e4824b9c532b52ed1c8b12c44000ad41ef4c4c",
   "runtime": "Native Windows Python 3.12 / Torch 2.8.0+cu128",
   "weights_bundled": false,
+  "long_video_attention": {
+    "implementation": "model/query_batched_attention.py and model/layers.py",
+    "default": "256 queries per batch for eval without gradients when length exceeds 256 frames",
+    "semantics": "Original temporal windows, padding fallback, absolute RoPE positions and input precision; complete-sequence model forward retained",
+    "scope": "Local source adaptation; no weights or runtime dependency changes; real six-minute CUDA inference still requires target-machine validation"
+  },
   "compatibility": "Native Windows pinned RGB MoCap runtime; bounded sequential loaders, CPU-first Low Memory body/hand loading, pre-transfer Sapiens FP16, local DINOv3 and Unicode-safe image IO retained. Public hand_boxes/model_inputs/ExMR.from_pretrained and direct model forward replace private pipeline calls. Stage-scoped model reuse, removable hooks, bounded CPU prefetch and unused final body readout omission retained. Upstream v0.1.5 axis-wise 0.03 m toe IK bound enabled. Local normalize_world switch defaults to upstream behavior; app disables it to retain its scene/camera frame. Explicit SimpleVO frame_reader callback preserves canonical-video pixels. App shared contact detection and correction are unchanged; upstream foot_contacts is not used. Runtime package pins and model weights unchanged."
 }

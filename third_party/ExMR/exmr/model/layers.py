@@ -4,6 +4,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from exmr.model.query_batched_attention import (
+    make_encoder_attention_plan,
+    query_batched_attention,
+)
+
 
 class Mlp(nn.Module):
     """fc1 -> activation -> dropout -> fc2 -> dropout (same layout and names as timm's Mlp)."""
@@ -106,12 +111,13 @@ class RoPEAttention(nn.Module):
         self.attn_dropout_p = dropout
         self.proj = nn.Linear(embed_dim, embed_dim)
 
-    def forward(self, x, attn_mask=None, key_padding_mask=None):
+    def forward(self, x, attn_mask=None, key_padding_mask=None, attention_plan=None):
         """
         Args:
             x: (B, L, C)
             attn_mask: (L, L) bool, True where a query may NOT attend to a key
             key_padding_mask: (B, L) bool, True at keys to ignore
+            attention_plan: inference-only replacement for the two dense masks
         """
         B, L, _ = x.shape
         q, k, v = self.qkv(x).chunk(3, dim=-1)
@@ -119,6 +125,12 @@ class RoPEAttention(nn.Module):
         k = k.reshape(B, L, self.num_heads, -1).transpose(1, 2)
         v = v.reshape(B, L, self.num_heads, -1).transpose(1, 2)
         q, k = self.rope(q), self.rope(k)
+
+        if attention_plan is not None:
+            if self.training or attn_mask is not None or key_padding_mask is not None:
+                raise ValueError("An attention plan requires eval mode and replaces dense masks")
+            out = query_batched_attention(q, k, v, attention_plan)
+            return self.proj(out.transpose(1, 2).reshape(B, L, -1))
 
         keep_mask = None  # SDPA convention: True = may attend
         if attn_mask is not None:
@@ -150,9 +162,10 @@ class EncoderRoPEBlock(nn.Module):
         self.gate_msa = nn.Parameter(torch.zeros(1, 1, hidden_size))
         self.gate_mlp = nn.Parameter(torch.zeros(1, 1, hidden_size))
 
-    def forward(self, x, attn_mask=None, key_padding_mask=None):
+    def forward(self, x, attn_mask=None, key_padding_mask=None, attention_plan=None):
         x = x + self.gate_msa * self.attn(
-            self.norm1(x), attn_mask=attn_mask, key_padding_mask=key_padding_mask
+            self.norm1(x), attn_mask=attn_mask, key_padding_mask=key_padding_mask,
+            attention_plan=attention_plan,
         )
         return x + self.gate_mlp * self.mlp(self.norm2(x))
 
@@ -160,9 +173,16 @@ class EncoderRoPEBlock(nn.Module):
 class RoPEEncoder(nn.Module):
     """Stack of EncoderRoPEBlocks over a (B, L, C) sequence with length padding."""
 
-    def __init__(self, latent_dim, num_layers, num_heads, mlp_ratio, dropout, max_len):
+    def __init__(self, latent_dim, num_layers, num_heads, mlp_ratio, dropout, max_len,
+                 *, query_chunk_size=256):
         super().__init__()
         self.max_len = max_len
+        if query_chunk_size is not None and (
+            isinstance(query_chunk_size, bool) or not isinstance(query_chunk_size, int)
+            or query_chunk_size < 1
+        ):
+            raise ValueError("query_chunk_size must be a positive integer or None")
+        self.query_chunk_size = query_chunk_size
         self.blocks = nn.ModuleList(
             [
                 EncoderRoPEBlock(latent_dim, num_heads, mlp_ratio=mlp_ratio, dropout=dropout)
@@ -172,11 +192,20 @@ class RoPEEncoder(nn.Module):
 
     def forward(self, x, length, frame_valid=None):
         """Returns the encoded sequence and keep (B, L), True at frames that are valid inputs."""
-        attn_mask, key_padding_mask, keep = make_encoder_masks(
-            length, x.shape[1], self.max_len, frame_valid
-        )
+        attention_plan = None
+        if (not self.training and not torch.is_grad_enabled()
+                and self.query_chunk_size is not None and x.shape[1] > self.query_chunk_size):
+            attention_plan, keep = make_encoder_attention_plan(
+                length, x.shape[1], self.max_len, frame_valid, self.query_chunk_size
+            )
+            attn_mask = key_padding_mask = None
+        else:
+            attn_mask, key_padding_mask, keep = make_encoder_masks(
+                length, x.shape[1], self.max_len, frame_valid
+            )
         for block in self.blocks:
-            x = block(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
+            x = block(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask,
+                      attention_plan=attention_plan)
         return x, keep
 
 
