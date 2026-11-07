@@ -51,6 +51,20 @@ __pycache__/
 !/tests/test_face_*.py
 !/tests/blender_face_*.py
 !/tests/character_face_gl_check.py
+!/tests/test_pmx_ancestor_controls.py
+!/tests/test_pmx_coincident_pivots.py
+!/tests/test_pmx_dependencies.py
+!/tests/test_pmx_images.py
+!/tests/test_pmx_numbered_spine.py
+!/tests/test_pmx_validation.py
+!/tests/test_character_materials.py
+!/tests/test_texture_budget.py
+!/tests/blender_pmx_catalog_case.py
+!/tests/blender_pmx_material_integration.py
+!/tests/blender_pmx_motion_audit.py
+!/tests/blender_texture_budget_integration.py
+!/tests/character_material_gl_check.py
+!/tests/character_material_preview.py
 # Historical local patch packages and rollback backups
 /longvideo_patch_backups/
 /rgb-longvideo-patch/

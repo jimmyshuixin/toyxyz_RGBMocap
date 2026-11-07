@@ -51,7 +51,7 @@ n=mat3(sceneTransform)*v.normal.xyz;uv=corner.yz;}'''
 TEXTURE_FRAGMENT='''#version 430 core
 in vec3 n;in vec2 uv;out vec4 color;
 uniform sampler2D baseTexture;uniform bool hasTexture;uniform vec4 baseColor;
-void main(){vec4 c=hasTexture?texture(baseTexture,uv):baseColor;
+void main(){vec4 c=hasTexture?texture(baseTexture,uv)*baseColor:baseColor;
 if(c.a<.1)discard;
 float light=.60+.35*max(0,dot(normalize(n),normalize(vec3(-.4,.8,-.6))));
 color=vec4(c.rgb*light,1);}'''
@@ -110,11 +110,11 @@ class CharacterRenderer(MeshRenderer):
                 for name,pixels in data['images'].items():
                     h,w=pixels.shape[:2]
                     limit=int(self.gl.glGetIntegerv(0x0D33))
-                    if max(w,h)>limit:raise ValueError(f'Original texture {w}x{h} exceeds this GPU limit ({limit}).')
+                    if max(w,h)>limit:raise ValueError(f'Character preview texture {w}x{h} exceeds this GPU limit ({limit}).')
                     image=QImage(pixels.data,w,h,w*4,QImage.Format_RGBA8888)
                     texture=QOpenGLTexture(image,QOpenGLTexture.GenerateMipMaps)
                     self.textures[name]=texture
-                    if not texture.isCreated():raise RuntimeError('Cannot allocate original character texture')
+                    if not texture.isCreated():raise RuntimeError('Cannot allocate character preview texture')
                     texture.setMinificationFilter(QOpenGLTexture.LinearMipMapLinear)
                     texture.setMagnificationFilter(QOpenGLTexture.Linear)
                     texture.setWrapMode(QOpenGLTexture.Repeat)

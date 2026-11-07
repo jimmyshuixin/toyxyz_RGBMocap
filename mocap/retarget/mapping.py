@@ -76,6 +76,49 @@ def _pmx_mapping(names, pmx_names):
     return mapping
 
 
+def _pmx_numbered_three_spine(mapping, names, pmx_names, parents):
+    """Resolve the native UpperBody/UpperBody2/UpperBody3 convention.
+
+    UpperBody3 is a physical chest pivot, not an optional decoration. Only
+    choose this convention when UpperBody1 is absent and the native ancestry
+    confirms all three pivots and the neck/shoulder branches. Intermediate
+    control bones remain in the imported rig and are never renamed.
+    """
+    if mapping[6] is not None:
+        return mapping
+    candidates = set()
+    if '上半身3' in names:
+        candidates.add('上半身3')
+    if pmx_names is not None:
+        values = pmx_names.get('上半身3', ())
+        candidates.update([values] if isinstance(values, str) else values)
+    if not candidates:
+        return mapping
+    if not candidates.issubset(names) or len(candidates) != 1:
+        raise ValueError('Missing or ambiguous PMX bone identity: 上半身3')
+    numbered = list(mapping)
+    numbered[6], numbered[9] = mapping[9], next(iter(candidates))
+    if numbered[3] is None or numbered[6] is None:
+        raise ValueError('PMX UpperBody3 requires an UpperBody -> UpperBody2 -> UpperBody3 chain.')
+    if parents is None:
+        raise ValueError('PMX UpperBody3 requires the native bone hierarchy.')
+    actual = {name for name in numbered if name is not None}
+    for slot, parent_slot in ((6, 3), (9, 6), (12, 9), (13, 9), (14, 9)):
+        if numbered[slot] is None:
+            continue  # The ordinary missing-bone diagnostic names this slot.
+        current = parents.get(numbered[slot])
+        seen = set()
+        while current is not None and current not in actual:
+            if current in seen or current not in parents:
+                raise ValueError('Invalid PMX upper-body hierarchy.')
+            seen.add(current)
+            current = parents[current]
+        if current != numbered[parent_slot]:
+            raise ValueError('Unsupported PMX UpperBody3 hierarchy: ' + NAMES[slot]
+                             + ' must descend from ' + NAMES[parent_slot] + '.')
+    return numbered
+
+
 def _validate_two_spine(mapping, parents):
     if parents is None or parents.get(mapping[9]) != mapping[3]:
         raise ValueError('PMX two-spine support requires UpperBody2 to be a direct child of UpperBody.')
@@ -123,6 +166,10 @@ def body_mapping(kind,bones,semantic,*,parents=None,pmx_names=None):
         return [v[0] for v in mapping]
     if kind == 'pmx':
         mapping = _pmx_mapping(names, pmx_names)
+        if not any(name is not None for name in mapping):
+            raise ValueError('This PMX has no supported humanoid body skeleton. '
+                             'Import a character model instead of a prop or accessory.')
+        mapping = _pmx_numbered_three_spine(mapping, names, pmx_names, parents)
         if [i for i, name in enumerate(mapping) if name is None] == [6]:
             _validate_two_spine(mapping, parents)
             mapping[6] = VIRTUAL_SPINE1

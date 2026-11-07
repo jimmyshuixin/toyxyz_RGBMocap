@@ -69,7 +69,7 @@ class CharacterLoader(QThread):
                         source=str(Path(self.texture_sources.get(key,key)).resolve())
                         textures=next((v['textures'] for v in self.data.values() if v.get('textures',{}).get('key')==source),None)
                         if textures is None:
-                            self.preparing.emit('Loading original character textures...')
+                            self.preparing.emit('Loading character textures...')
                             textures=load(source,asset,lambda:self.stop or requested!=self.epoch)
                         else:validate_geometry(textures['metadata'],asset)
                         asset['textures']=textures

@@ -1,4 +1,4 @@
-"""Load full-size texture caches on the character I/O thread, never during painting."""
+"""Load budgeted texture caches on the character I/O thread, never during painting."""
 import hashlib
 import json
 import os
@@ -10,7 +10,7 @@ import numpy as np
 
 from .retarget.file_paths import io_path
 
-CACHE = 'preview-textures-v1'
+CACHE = 'preview-textures-v2'
 
 
 def load(source, asset, cancelled):
@@ -34,7 +34,7 @@ def load(source, asset, cancelled):
                         raise RuntimeError('Texture preparation timed out. See texture-preview.log in the character asset folder.')
                     time.sleep(.1)
                 if process.returncode:
-                    raise RuntimeError('Cannot prepare original character textures. See texture-preview.log in the character asset folder.')
+                    raise RuntimeError('Cannot prepare character preview textures. See texture-preview.log in the character asset folder.')
             finally:
                 if process.poll() is None:
                     process.terminate()
@@ -85,6 +85,6 @@ def load(source, asset, cancelled):
 
 
 def validate_geometry(meta, asset):
-    if (meta.get('version') != 1 or meta['vertices'] != len(asset['vertices'])
+    if (meta.get('version') != 2 or meta['vertices'] != len(asset['vertices'])
             or meta['faces_sha256'] != hashlib.sha256(asset['faces'].tobytes()).hexdigest()):
         raise ValueError('Character texture and animation geometry do not match. Reimport the character.')

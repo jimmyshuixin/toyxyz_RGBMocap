@@ -334,7 +334,7 @@ class CharacterWorkspace:
     def character_ready(self,key,data):
         if self.character_loader.stop:return
         self.character_assets[key]=data
-        if self.status.text()=='Loading original character textures...':self.status.setText('Character preview ready.')
+        if self.status.text()=='Loading character textures...':self.status.setText('Character preview ready.')
         if self.motion_view.joints is None and not self.motion_view._camera_initialized:
             v=data['asset']['vertices'];lo=v.min(0);hi=v.max(0)
             self.motion_view.scene_center=(lo+hi)*.5

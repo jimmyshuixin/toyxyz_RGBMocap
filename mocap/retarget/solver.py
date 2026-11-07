@@ -22,6 +22,12 @@ def unit(v):
     return v / max(float(np.linalg.norm(v)), 1e-12)
 
 def align(a, b):
+    # Co-located PMX pivots can differ by coordinate roundoff (~1e-16 m).
+    # unit() deliberately clamps its denominator; applying Rodrigues to that
+    # non-unit result would introduce scale/shear, amplified by repeated FK.
+    # There is no directional constraint on a zero-length edge.
+    if min(float(np.linalg.norm(a)), float(np.linalg.norm(b))) < 1e-12:
+        return np.eye(3)
     a = unit(a)
     b = unit(b)
     v = np.cross(a, b)

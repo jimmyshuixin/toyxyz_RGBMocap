@@ -38,6 +38,63 @@ def align(a, b):
     K = np.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
     return np.eye(3) + K + K @ K / max(1 + c, 1e-10)
 
+
+def validate_pmx_ancestor_controls(arm, keyed):
+    """Reject unsupported animated control parents before publishing a bake.
+
+    Native waist-cancel controls have an explicit bake/VMD implementation.
+    Other append-driven parents need an evaluated control-chain solve; treating
+    them as static can preserve joint positions while corrupting orientations.
+    """
+    intermediates = set()
+    for name in keyed:
+        bone = arm.data.bones[name].parent
+        while bone is not None:
+            intermediates.add(bone.name)
+            bone = bone.parent
+    # Append rotations use the source's local pose. Ordinary shoulder-cancel
+    # bones driven by an unkeyed, static shoulder-P control remain identity.
+    # A transitive append source driven by a keyed elbow is different, even
+    # if that intermediate source is itself unkeyed.
+    grant_sources = {}
+    for pb in arm.pose.bones:
+        source = getattr(getattr(pb, 'mmd_bone', None), 'additional_transform_bone', '')
+        if source and any(c.name in {'mmd_additional_rotation', 'mmd_additional_location'}
+                          and not c.mute and c.influence > 0 for c in pb.constraints):
+            grant_sources[pb.name] = source
+    animated = set(keyed)
+    # Independent arm IK can drive an unkeyed duplicate elbow, whose result
+    # is then granted back into the mapped wrist's parent chain.
+    for pb in arm.pose.bones:
+        if pb.name in keyed or pb.name.startswith('腰キャンセル'):
+            continue
+        for constraint in pb.constraints:
+            if (getattr(constraint, 'type', '') != 'IK' or constraint.mute
+                    or constraint.influence <= 0):
+                continue
+            current = pb.bone
+            count = 0
+            while current is not None and (constraint.chain_count == 0 or count < constraint.chain_count):
+                animated.add(current.name)
+                current = current.parent
+                count += 1
+    while True:
+        updated = animated | {name for name, source in grant_sources.items() if source in animated}
+        if updated == animated:
+            break
+        animated = updated
+    unsupported = []
+    for name in sorted(intermediates - set(keyed)):
+        if name.startswith('腰キャンセル'):
+            continue
+        if name in animated and name in grant_sources:
+            unsupported.append(name)
+    if unsupported:
+        raise ValueError('PMX retargeting does not support active append-transform ancestors: '
+                         + ', '.join(unsupported)
+                         + '. Use the standard PMX variant without these auxiliary controls. '
+                           'The original model has not been changed.')
+
 def bake(kind, label, method):
     start = time.perf_counter()
     timings = {}
@@ -101,6 +158,8 @@ def bake(kind, label, method):
         finally:source_frames._mmap.close()
     total_bones = len(bones)
     keyed = set(mapped) | set(extra) | ({'腰'} if kind == 'pmx' else set())
+    if kind == 'pmx':
+        validate_pmx_ancestor_controls(arm, keyed)
     needed = set(keyed)
     for name in keyed:
         b = arm.data.bones[name].parent

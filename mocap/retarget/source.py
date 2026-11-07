@@ -52,7 +52,11 @@ def prepare(project,kind,out):
     if n<2:raise ValueError('Retargeting requires at least two source frames.')
     if n>54000:raise ValueError('Select a shorter take (up to 30 minutes at 30 fps).')
     points=np.array(frames[:,:22,:3,3],float)
-    world=R.from_matrix(frames[:,:22,:3,:3].reshape(-1,3,3)).as_matrix().reshape(n,22,3,3)
+    # The pinned SciPy requires a writable buffer, including a contiguous
+    # 22-joint read-only memmap. Copy only when that requirement is unmet.
+    matrices=np.require(frames[:,:22,:3,:3].reshape(-1,3,3),requirements=['W'])
+    world=R.from_matrix(matrices).as_matrix().reshape(n,22,3,3)
+    del matrices
     rest=np.array(asset['rest'][:22],float)
     params=torch.load(paths[3],map_location='cpu',weights_only=False)
     body=np.load(bodypath,allow_pickle=True)

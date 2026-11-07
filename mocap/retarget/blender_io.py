@@ -45,6 +45,11 @@ def import_character(filename, out):
                     if name:semantic[side+'Thumb'+part]=name
     else:
         addon_utils.enable('mmd_tools',default_set=False,persistent=False)
+        from mmd_tools.core import pmx
+        from .pmx_validation import validate_bones
+        model=pmx.load(str(filename))
+        validate_bones(model.bones)
+        del model
         bpy.ops.mmd_tools.import_model(filepath=str(filename),types={'MESH','ARMATURE','MORPHS'},scale=.08,log_level='ERROR')
     arms=[o for o in bpy.context.scene.objects if o.type=='ARMATURE']
     if len(arms)!=1:raise ValueError('Import one humanoid armature per character file.')
@@ -104,15 +109,27 @@ def import_character(filename, out):
     from .blender_geometry import register
     report('Registering soles, palms and humanoid proportions')
     register(out,kind,rig,arm,mapping,rest)
-    bpy.ops.file.pack_all()
+    warnings=[]
+    if kind=='pmx':
+        from .blender_images import pack_images
+        warnings=pack_images()
+        for warning in warnings:
+            report('Warning: '+warning['code']+': '+warning['path'])
+    else:
+        bpy.ops.file.pack_all()
     save_blend(out/f'{kind}-rest.blend')
     preview(out,arm,None,1)
     metadata=dict(kind=kind,name=filename.stem,vertices=count,bones=len(arm.data.bones),body_profile=profile['id'])
     if kind=='pmx':metadata['mmd_import_scale']=.08
+    if warnings:metadata['warnings']=warnings
     Path(io_path(out/'import.json')).write_text(json.dumps(metadata),encoding='utf8')
     from .blender_textures import extract
-    report('Preparing original-resolution textures')
-    extract(out)
+    report('Preparing character textures within the preview memory budget')
+    texture_info=extract(out)
+    if texture_info.get('warnings'):
+        metadata.setdefault('warnings',[]).extend(dict(code='preview_texture_downsampled',message=message)
+                                                  for message in texture_info['warnings'])
+        Path(io_path(out/'import.json')).write_text(json.dumps(metadata),encoding='utf8')
 
 
 def vertex_colors(obj):
@@ -120,24 +137,12 @@ def vertex_colors(obj):
     mesh=obj.data
     result=np.zeros((len(mesh.vertices),4),np.float32);hits=np.zeros(len(mesh.vertices),np.int32)
     materials=[]
+    from .blender_materials import base_surface
     for mat in mesh.materials:
-        col=np.array(mat.diffuse_color if mat else (.65,.65,.65,1),float)
-        tex=None
-        if mat and mat.use_nodes:
-            nodes=mat.node_tree.nodes
-            bs=next((n for n in nodes if n.type=='BSDF_PRINCIPLED'),None)
-            if bs:
-                inp=bs.inputs.get('Base Color')
-                if inp:
-                    col=np.array(inp.default_value)
-                    if inp.is_linked:
-                        node=inp.links[0].from_node
-                        if node.type=='TEX_IMAGE' and node.image:tex=node.image
-            if tex is None:
-                node=next((n for n in nodes if n.type=='TEX_IMAGE' and n.image and ('shade' not in n.name.lower())),None)
-                if node:tex=node.image
+        color,tex=base_surface(mat)
+        col=np.asarray(color,float)
         pixels=None
-        if tex and tex.size[0]*tex.size[1]<=16_777_216:
+        if tex and 0<tex.size[0]*tex.size[1]<=16_777_216:
             pixels=np.empty(tex.size[0]*tex.size[1]*4,np.float32)
             tex.pixels.foreach_get(pixels);pixels=pixels.reshape(tex.size[1],tex.size[0],4)
         materials.append((col,pixels))
@@ -147,7 +152,7 @@ def vertex_colors(obj):
         for li in polygon.loop_indices:
             vi=mesh.loops[li].vertex_index;c=col
             if pixels is not None and uv:
-                u,v=uv.data[li].uv;c=pixels[int((v%1)*pixels.shape[0])%pixels.shape[0],int((u%1)*pixels.shape[1])%pixels.shape[1]]
+                u,v=uv.data[li].uv;c=col*pixels[int((v%1)*pixels.shape[0])%pixels.shape[0],int((u%1)*pixels.shape[1])%pixels.shape[1]]
             result[vi]+=c;hits[vi]+=1
     result/=np.maximum(hits[:,None],1)
     return result[:,:3]
@@ -157,7 +162,7 @@ def preview(out,arm,keyed,n):
     from .selective_fbx import body_dependencies
     metadata=Path(io_path(out/'import.json'))
     kind=json.loads(metadata.read_text(encoding='utf-8'))['kind'] if metadata.exists() else next(p.stem.split('-')[0] for p in Path(io_path(out)).glob('*-rig.json'))
-    dynamic=set(keyed or [])|body_dependencies(kind,arm)
+    dynamic=set(keyed or [])|body_dependencies(kind,arm,keyed or ())
     if not keyed:dynamic={b.name for b in arm.data.bones}
     dynamic={name for name in dynamic if name in arm.data.bones}
     palette=sorted(dynamic);index={name:i for i,name in enumerate(palette)}
@@ -261,7 +266,7 @@ def main(args):
         bpy.context.view_layer.objects.active=arm
         temp=target.with_name('.'+target.stem+'-'+uuid.uuid4().hex+'.partial.fbx')
         try:
-            with body_only_sampler(arm,set(info['keyed_bones'])|body_dependencies(kind,arm)):
+            with body_only_sampler(arm,set(info['keyed_bones'])|body_dependencies(kind,arm,info['keyed_bones'])):
                 # Explicit terminal markers keep Blender's Ignore Leaf Bones
                 # option from removing real terminal finger bones.
                 bpy.ops.export_scene.fbx(filepath=io_path(temp),use_selection=True,object_types=types,add_leaf_bones=True,
