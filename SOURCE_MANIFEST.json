@@ -11,8 +11,8 @@
     },
     {
       "path": ".gitignore",
-      "bytes": 2361,
-      "sha256": "8d256a3606d1fa27a07721bb0b080177e821fbd8ca8e14732db9029f43e4124c"
+      "bytes": 2451,
+      "sha256": "9a2bc37a327b2197d90e0ff41664bf3f32c811c3dca44c4ad0461723da00c995"
     },
     {
       "path": "AGENTS.md",
@@ -116,8 +116,8 @@
     },
     {
       "path": "docs/LONG_VIDEO_EXMR.md",
-      "bytes": 4261,
-      "sha256": "37718ced7259ad3a344e1a879f4ac15eb2c33446f6144fd2c92c2a7d1f8f2e02"
+      "bytes": 4764,
+      "sha256": "e980b203be62944fa5e03dc315c7a944b93496822b5e8e787438c5f5b10e5b88"
     },
     {
       "path": "docs/MAMMA.md",
@@ -128,6 +128,11 @@
       "path": "docs/MAMMA_AGENT_SETUP.md",
       "bytes": 22466,
       "sha256": "39bd2ad349d37f2efa6246ffd76c345f422ffe5155eea010d4d46c96f1b23851"
+    },
+    {
+      "path": "docs/MEMORY_OPTIMIZATION.md",
+      "bytes": 9627,
+      "sha256": "65d18423b5507698ffa609c4927c68448194e2e8af3f2147b4a1cdab445d2ca4"
     },
     {
       "path": "docs/PERFORMANCE.md",
@@ -1971,8 +1976,8 @@
     },
     {
       "path": "mocap/retarget/solver.py",
-      "bytes": 64153,
-      "sha256": "19c613927dce97fa1bf6f374cec8490c882803469f325db54b4311904d7f872d"
+      "bytes": 66365,
+      "sha256": "87febe09098a702e88b74c13849fca4816eaaa826a43f57a61d79daa25389fa0"
     },
     {
       "path": "mocap/retarget/source.py",
@@ -2335,6 +2340,21 @@
       "sha256": "e07c1f947f40c24d5ab0b214802b4204ad830d4dd606da76dff61c2bf3a3a443"
     },
     {
+      "path": "tests/test_memory_exmr.py",
+      "bytes": 16192,
+      "sha256": "3ea470cbea6c6494599638f3582004fd5627cc76dee8ba1c594ad896829cd058"
+    },
+    {
+      "path": "tests/test_memory_htd.py",
+      "bytes": 9588,
+      "sha256": "ff37364691c9c04c9f3c3552a8a677c19d8fae28c2c11cba4e76726efd0efaa4"
+    },
+    {
+      "path": "tests/test_memory_retarget.py",
+      "bytes": 11482,
+      "sha256": "45affc8f3e74dcd961f67fba365927e621606fe9a8b58e133c0f81af9d0a73e4"
+    },
+    {
       "path": "tests/test_pmx_two_spine.py",
       "bytes": 16588,
       "sha256": "089eb3d042b86b9dcd5b77c60f0b5827640c296b4e093555b7f573823c262c30"
@@ -2356,8 +2376,8 @@
     },
     {
       "path": "third_party/ExMR/RGB_MOCAP_PROVENANCE.json",
-      "bytes": 1530,
-      "sha256": "11e6f6f8e51aee66d9134ebba9a8ae79866468fe92e9f4c35bb2d7342a00cd03"
+      "bytes": 2326,
+      "sha256": "1d0703ef9ccf0013f164376fea6739ec440e91a16e2055399efcc52a795ff983"
     },
     {
       "path": "third_party/ExMR/THIRD_PARTY_NOTICES.md",
@@ -2461,8 +2481,8 @@
     },
     {
       "path": "third_party/ExMR/exmr/model/exmr.py",
-      "bytes": 11623,
-      "sha256": "6e3a717275acd8e5409681fb9f608b8facc3b624e4821d2a4d47362490bc2bbd"
+      "bytes": 11701,
+      "sha256": "efec5a76c37c622e8081707bb2be7ede7a76998e60fa87ce4a3921208256f796"
     },
     {
       "path": "third_party/ExMR/exmr/model/global_traj.py",
@@ -2476,8 +2496,8 @@
     },
     {
       "path": "third_party/ExMR/exmr/model/layers.py",
-      "bytes": 11128,
-      "sha256": "0dc4cae1c819a0ff33b8df737cc6caa61cb6d00bf9ff60be052fe24a00e6aef1"
+      "bytes": 13428,
+      "sha256": "2010cf72602d3dafd899de77668b32b6cc4c7cec3bef43a38ccb77c4ce545527"
     },
     {
       "path": "third_party/ExMR/exmr/model/query_batched_attention.py",
@@ -2546,8 +2566,8 @@
     },
     {
       "path": "third_party/ExMR/exmr/preprocessing/visual_odometry.py",
-      "bytes": 14783,
-      "sha256": "1806c986cab846829865605af537d264c8cd822941bc59e914ce067e1a898ddb"
+      "bytes": 15511,
+      "sha256": "828435399897616c62fe74c01c446bfdefca39cc2f04886aad9b549a65ac06f7"
     },
     {
       "path": "third_party/ExMR/exmr/vis/__init__.py",
@@ -10571,8 +10591,8 @@
     },
     {
       "path": "third_party/HTD-Refine/optimization/pipeline.py",
-      "bytes": 9980,
-      "sha256": "087ed4ea1003935b6d874ea4bc4e58b6a7e20b3f704fd2cc8fe1b9093c320c11"
+      "bytes": 10175,
+      "sha256": "b6efc9656b6b837f6ab32945dfde5798979634f84fbb45424d64988975734016"
     },
     {
       "path": "third_party/HTD-Refine/optimization/postprocess.py",

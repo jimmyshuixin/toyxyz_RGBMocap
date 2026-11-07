@@ -45,6 +45,9 @@ __pycache__/
 !/tests/test_pmx_two_spine_blender.py
 !/tests/pmx_two_spine_motion_fixture.py
 !/tests/blender_pmx_two_spine_integration.py
+!/tests/test_memory_exmr.py
+!/tests/test_memory_retarget.py
+!/tests/test_memory_htd.py
 # Historical local patch packages and rollback backups
 /longvideo_patch_backups/
 /rgb-longvideo-patch/

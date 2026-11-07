@@ -9,5 +9,12 @@
     "semantics": "Original temporal windows, padding fallback, absolute RoPE positions and input precision; complete-sequence model forward retained",
     "scope": "Local source adaptation; no weights or runtime dependency changes; real six-minute CUDA inference still requires target-machine validation"
   },
+  "bounded_memory_adaptation": {
+    "implementation": "preprocessing/visual_odometry.py, model/layers.py and model/exmr.py",
+    "camera": "Stream the original sampled RGB images into unchanged SIFT matching and pose interpolation; close readers on completion, errors and cancellation",
+    "rotary_tables": "Share identical canonical FP32-angle RoPE tables within an ExMR model lifetime; retain private per-layer cache histories after any non-FP32 angle conversion, including conversion back to FP32; clear derived tables on device/dtype moves",
+    "semantics": "Unchanged checkpoints, image pixels, sampling, model precision, temporal context and motion equations",
+    "validation": "See docs/MEMORY_OPTIMIZATION.md in RGB MoCap for numerical equivalence and measured validation scope"
+  },
   "compatibility": "Native Windows pinned RGB MoCap runtime; bounded sequential loaders, CPU-first Low Memory body/hand loading, pre-transfer Sapiens FP16, local DINOv3 and Unicode-safe image IO retained. Public hand_boxes/model_inputs/ExMR.from_pretrained and direct model forward replace private pipeline calls. Stage-scoped model reuse, removable hooks, bounded CPU prefetch and unused final body readout omission retained. Upstream v0.1.5 axis-wise 0.03 m toe IK bound enabled. Local normalize_world switch defaults to upstream behavior; app disables it to retain its scene/camera frame. Explicit SimpleVO frame_reader callback preserves canonical-video pixels. App shared contact detection and correction are unchanged; upstream foot_contacts is not used. Runtime package pins and model weights unchanged."
 }

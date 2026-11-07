@@ -15,6 +15,7 @@ from exmr.geometry.smoothing import gaussian_smooth, gaussian_smooth_rotations
 from exmr.model import global_traj
 from exmr.model.body_net import HAND_POSE, BodyNet
 from exmr.model.decoder import Decoder
+from exmr.model.layers import share_rope_cache
 from exmr.model.refiners import FootRefiner, HandRefiner
 
 # indices into the 22 SMPL-X body joints
@@ -61,6 +62,7 @@ class ExMR(nn.Module):
         # camera angular velocity normalization (6D), loaded with the checkpoint
         self.register_buffer("cam_angvel_mean", torch.zeros(6))
         self.register_buffer("cam_angvel_std", torch.ones(6))
+        share_rope_cache(self)
 
     @classmethod
     def from_pretrained(cls, checkpoint, smplx_npz, device="cuda"):

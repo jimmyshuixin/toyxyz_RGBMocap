@@ -81,36 +81,82 @@ def skin(data, v, w):
     weighted = (v[None] - rest[:, None]) * w.T[:, :, None]
     return np.einsum('tjik,jvk->tvi', data['world'], weighted, optimize=True) + np.einsum('vj,tji->tvi', w, data['points'], optimize=True)
 
+
+def _skin_blocks(data, vertices, weights):
+    """Keep the original skin arithmetic, bounding only independent frames.
+
+    Reserve space for four vertex-sized temporaries within a 32 MiB estimate.
+    Static geometry, the joint arrays and the unavoidable one-frame minimum are
+    separate; this is not a process-memory cap. No vertices are discarded.
+    """
+    dtype = np.result_type(data['world'], data['points'], data['rest'], vertices, weights)
+    per_frame = max(1, len(vertices) * 3 * dtype.itemsize)
+    count = max(1, min(128, (32 * 1024**2) // (4 * per_frame)))
+    for first in range(0, len(data['world']), count):
+        frame = dict(rest=data['rest'], world=data['world'][first:first + count],
+                     points=data['points'][first:first + count])
+        yield first, skin(frame, vertices, weights)
+
+
+def _skin_heights(data, vertices, weights):
+    """Reduce full eligible geometry before moving to the next frame block."""
+    result = None
+    for first, points in _skin_blocks(data, vertices, weights):
+        if result is None:
+            result = np.empty(len(data['world']), dtype=points.dtype)
+        result[first:first + len(points)] = points[:, :, 1].min(1)
+        del points
+    return result
+
+
 def geometry_samples(data, geo, palms):
+    """Return probes, per-frame foot minima and palm pins, never full surfaces."""
     pins = []
     probes = []
-    feet = []
+    heights = []
     for side in [0, 1]:
-        points = skin(data, geo[f'foot_v{side}'], geo[f'foot_w{side}'])
-        feet.append(points)
-        for ids in [geo[f'heel{side}'], geo[f'toe{side}']]:
-            part = points[:, ids]
-            sample = part.mean(1)
-            sample[:, 1] = part[:, :, 1].min(1)
-            probes.append(sample)
+        samples = minimum = None
+        patches = (geo[f'heel{side}'], geo[f'toe{side}'])
+        for first, points in _skin_blocks(data, geo[f'foot_v{side}'], geo[f'foot_w{side}']):
+            if samples is None:
+                samples = [np.empty((len(data['world']), 3), dtype=points.dtype) for _ in range(2)]
+                minimum = np.empty(len(data['world']), dtype=points.dtype)
+            end = first + len(points)
+            minimum[first:end] = points[:, :, 1].min(1)
+            for output, ids in zip(samples, patches):
+                part = points[:, ids]
+                sample = part.mean(1)
+                sample[:, 1] = part[:, :, 1].min(1)
+                output[first:end] = sample
+                del part, sample
+            del points
+        heights.append(minimum)
+        probes.extend(samples)
     for side in [0, 1]:
-        points = skin(data, geo[f'palm_v{side}'][palms[side]], geo[f'palm_w{side}'][palms[side]])
-        pins.append(points.mean(1))
-    return (np.stack(probes, 1), feet, np.stack(pins, 1))
+        sample = None
+        for first, points in _skin_blocks(data, geo[f'palm_v{side}'][palms[side]], geo[f'palm_w{side}'][palms[side]]):
+            if sample is None:
+                sample = np.empty((len(data['world']), 3), dtype=points.dtype)
+            sample[first:first + len(points)] = points.mean(1)
+            del points
+        pins.append(sample)
+    return (np.stack(probes, 1), np.stack(heights, 1), np.stack(pins, 1))
 
 def setup_targets(base, source, active, geo):
     n = len(base['root'])
     palms = []
     for side in [0, 1]:
-        points = skin(base, geo[f'palm_v{side}'], geo[f'palm_w{side}'])
         ids = np.flatnonzero(active[:, 2 + side])
         first = int(ids[0]) if len(ids) else 0
-        palms.append(np.argsort(points[first, :, 1])[:max(4, min(12, len(points[first]) // 4))])
-    (probes, feet, hand) = geometry_samples(base, geo, palms)
+        frame = dict(rest=base['rest'], world=base['world'][first:first + 1], points=base['points'][first:first + 1])
+        points = skin(frame, geo[f'palm_v{side}'], geo[f'palm_w{side}'])[0]
+        palms.append(np.argsort(points[:, 1])[:max(4, min(12, len(points) // 4))])
+        del points
+    (probes, heights, hand) = geometry_samples(base, geo, palms)
     weights = trajectory.support_weights(probes, active[:, :2], FPS)
     pin = trajectory.support_samples(probes, weights)
     for side in [0, 1]:
-        pin[:, side, 1] = feet[side][:, :, 1].min(1)
+        pin[:, side, 1] = heights[:, side]
     support = np.concatenate([pin, hand], axis=1)
     anchors = support.copy()
     segments = []
@@ -142,14 +188,14 @@ def setup_targets(base, source, active, geo):
     return dict(palms=palms, weights=weights, support=support, anchors=anchors, goals=goals, planned=active | transition, transition=transition, active=active, segments=segments, flight=source_flight)
 
 def eval_pins(data, geo, plan):
-    (probes, feet, hands) = geometry_samples(data, geo, plan['palms'])
+    (probes, heights, hands) = geometry_samples(data, geo, plan['palms'])
     pin = trajectory.support_samples(probes, plan['weights'])
     for side in [0, 1]:
-        pin[:, side, 1] = feet[side][:, :, 1].min(1)
+        pin[:, side, 1] = heights[:, side]
     out = np.concatenate([pin, hands], 1)
     if 'skin_bias' in plan:
         out = out + plan['skin_bias']
-    return (out, feet)
+    return (out, heights)
 
 def source_safe_reach(rest, source, side):
     (a, b, c) = CHAINS[side]
@@ -227,8 +273,7 @@ def free_clearance(data, source, active, geo, plan):
         mask = np.zeros_like(active)
         amount = np.zeros((len(active), 2))
         for side in [0, 1]:
-            vertices = skin(data, geo[f'foot_v{side}'], geo[f'foot_w{side}'])
-            height = vertices[:, :, 1].min(1)
+            height = _skin_heights(data, geo[f'foot_v{side}'], geo[f'foot_w{side}'])
             free = ~active[:, side]
             raw = np.where(free, np.clip(0.001 - height, 0.0, 0.08), 0.0)
             for (first, end) in trajectory.runs(free):
@@ -556,7 +601,7 @@ def refine(base, source, active, geo, skin_bias=None):
     trace = []
     stop_reason = 'iteration_limit'
     for iteration in range(20):
-        (pin, _) = eval_pins(current, geo, plan)
+        pin = eval_pins(current, geo, plan)[0]
         gain = 1.0 if iteration == 0 else 0.6
         goals = current['points'][:, [7, 8, 20, 21]] + gain * (plan['goals'] - pin)
         planned = plan['planned'].copy()
@@ -584,7 +629,7 @@ def refine(base, source, active, geo, skin_bias=None):
         release_report = release_to_fk(current, base, active,FPS)
         clearance_report = free_clearance(current, source, active, geo, plan)
         reports.append(report)
-        (pin, _) = eval_pins(current, geo, plan)
+        pin = eval_pins(current, geo, plan)[0]
         error = max(np.linalg.norm((pin - plan['goals'])[active], axis=-1), default=0)
         if stop_enabled:
             trace.append(float(error))
@@ -608,7 +653,7 @@ def refine(base, source, active, geo, skin_bias=None):
     return (current, plan, dict(root_iterations=reports, unreachable_frames_per_part=unreachable.sum(0).tolist(), geometry_iterations=len(reports), skin_polish=polished, release=release_report, free_clearance=clearance_report, actual_skin_feedback=skin_bias is not None, early_stop=dict(enabled=stop_enabled, reason=stop_reason, best_iteration=best_iteration if best is not None else None, contact_max_trace_m=trace)))
 
 def score(data, source, active, geo, plan):
-    (pin, feet) = eval_pins(data, geo, plan)
+    (pin, heights) = eval_pins(data, geo, plan)
     error = pin - plan['goals']
     rows = []
     for part in range(4):
@@ -627,7 +672,7 @@ def score(data, source, active, geo, plan):
         s /= np.linalg.norm(s, axis=-1, keepdims=True)
         angles.extend(np.degrees(np.arccos(np.clip((v * s).sum(-1), -1, 1))).tolist())
     steps = np.degrees(R.from_matrix((data['local'][:-1].swapaxes(-1, -2) @ data['local'][1:]).reshape(-1, 3, 3)).magnitude())
-    return dict(contacts=rows, limb_direction_mean_deg=float(np.mean(angles)), limb_direction_p95_deg=float(np.percentile(angles, 95)), local_step_max_deg=float(steps.max()), foot_skin_min_y_mm=[float(f[:, :, 1].min() * 1000) for f in feet])
+    return dict(contacts=rows, limb_direction_mean_deg=float(np.mean(angles)), limb_direction_p95_deg=float(np.percentile(angles, 95)), local_step_max_deg=float(steps.max()), foot_skin_min_y_mm=[float(heights[:, side].min() * 1000) for side in (0, 1)])
 
 def arm_reference(seed):
     """One actor-local normal per elbow, calibrated from well-bent frames.
@@ -737,7 +782,7 @@ def optimize_hand(original, seed, ref, geo, plan, side):
     srcu = seed['points'][:, elbow] - seed['points'][:, upper]
     srcv = seed['points'][:, wrist] - seed['points'][:, elbow]
     source_flex = np.arccos(np.clip(np.einsum('ti,ti->t', srcu, srcv) / (u * v), -1, 1))
-    (pins, _) = eval_pins(original, geo, plan)
+    pins = eval_pins(original, geo, plan)[0]
     nominal = points[:, wrist] + plan['goals'][:, 2 + side] - pins[:, 2 + side]
     desired = nominal - points[:, collar]
     parallel = axis * np.einsum('ti,ti->t', axis, offset)[:, None]
@@ -885,8 +930,8 @@ def prepare(seed, geo, saved, bias=None):
     plan = dict(palms=[saved['palm_ids_left'], saved['palm_ids_right']], weights=saved['support_weights'], active=active, goals=saved['goals'].copy())
     if bias is not None:
         plan['skin_bias'] = bias
-    (support, _) = eval_pins(seed, geo, plan)
-    (probes, _, _) = geometry_samples(seed, geo, plan['palms'])
+    support = eval_pins(seed, geo, plan)[0]
+    probes = geometry_samples(seed, geo, plan['palms'])[0]
     segments = [dict(foot=s, start=a, end=b) for s in [0, 1] for (a, b) in trajectory.runs(active[:, 2 + s])]
     (off, transition) = trajectory.contact_offsets(probes, active[:, 2:], saved['anchors'][:, 2:], support[:, 2:], np.zeros_like(seed['root']), segments, FPS, np.ones((len(active), 2)), np.zeros(len(active), bool))
     plan['goals'][:, 2:] = support[:, 2:] + off
@@ -1141,7 +1186,7 @@ def run(kind):
         (current, _) = arm_solve(handseed, np.zeros((len(mask), 4, 3)), mask, refs)
     else:
         for it in range(10):
-            (pins, _) = eval_pins(current, geo, plan)
+            pins = eval_pins(current, geo, plan)[0]
             goals = current['points'][:, [7, 8, 20, 21]] + (plan['goals'] - pins) * (0.7 if it else 1.0)
             (current, _) = arm_solve(handseed, goals, mask, refs)
     current['world'][~planned[:, 0], 16] = handseed['world'][~planned[:, 0], 16]

@@ -68,43 +68,57 @@ class SimpleVO:
             count = frame_count
         sample_idxs = sorted({*range(0, count, self.step), count - 1})
         sources = [paths[i] for i in sample_idxs] if paths is not None else sample_idxs
-        frames = [  # (H, W, 3) RGB
-            cv2.cvtColor(
+        # Decode and match one sampled image at a time. Keeping every sampled
+        # RGB frame here costs several GiB for a long high-resolution video.
+        # The pixels, sample order and SIFT/matching calls stay unchanged.
+        def rgb_frame(img):
+            return cv2.cvtColor(
                 cv2.resize(img, None, fx=self.scale, fy=self.scale, interpolation=cv2.INTER_AREA),
                 cv2.COLOR_BGR2RGB,
             )
-            for img in (self.frame_reader or read_frames)(sources)
-        ]
-        H, W = frames[0].shape[:2]
 
-        # pinhole camera with the principal point at the center
-        focal_length = (W**2 + H**2) ** 0.5 / (24**2 + 36**2) ** 0.5 * self.f_mm
-        camera = pycolmap.Camera(
-            camera_id=0, model="SIMPLE_PINHOLE", width=W, height=H,
-            params=[focal_length, W / 2, H / 2],
-        )  # fmt: skip
-        options = pycolmap.TwoViewGeometryOptions(
-            min_num_inliers=10,
-            min_E_F_inlier_ratio=0.8,
-            max_H_inlier_ratio=0.9,
-            compute_relative_pose=True,
-        )
+        reader = iter((self.frame_reader or read_frames)(sources))
+        try:
+            frame = rgb_frame(next(reader))
+            H, W = frame.shape[:2]
 
-        T_w2c = [np.eye(4)]  # T_w2c @ p_w = p_c
-        features = self._features(frames[0])
-        for frame in tqdm(frames[1:], desc="Visual odometry", disable=not self.progress):
-            prev, features = features, self._features(frame)
-            pts0, pts1 = _match(prev, features)
-            matches = np.stack([np.arange(len(pts0)), np.arange(len(pts0))], axis=-1)
-            answer = pycolmap.estimate_calibrated_two_view_geometry(
-                camera, pts0.astype(np.float64), camera, pts1.astype(np.float64),
-                matches=matches, options=options,
+            # pinhole camera with the principal point at the center
+            focal_length = (W**2 + H**2) ** 0.5 / (24**2 + 36**2) ** 0.5 * self.f_mm
+            camera = pycolmap.Camera(
+                camera_id=0, model="SIMPLE_PINHOLE", width=W, height=H,
+                params=[focal_length, W / 2, H / 2],
             )  # fmt: skip
-            T_delta = np.eye(4)  # previous -> current camera
-            T_delta[:3] = answer.cam2_from_cam1.matrix().astype(np.float32)
-            T_w2c.append(T_delta @ T_w2c[-1])
+            options = pycolmap.TwoViewGeometryOptions(
+                min_num_inliers=10,
+                min_E_F_inlier_ratio=0.8,
+                max_H_inlier_ratio=0.9,
+                compute_relative_pose=True,
+            )
 
-        return _interpolate_poses(T_w2c, sample_idxs)
+            T_w2c = [np.eye(4)]  # T_w2c @ p_w = p_c
+            features = self._features(frame)
+            del frame
+            with tqdm(reader, total=len(sources) - 1, desc="Visual odometry",
+                      disable=not self.progress) as frames:
+                for image in frames:
+                    frame = rgb_frame(image)
+                    prev, features = features, self._features(frame)
+                    del frame, image
+                    pts0, pts1 = _match(prev, features)
+                    matches = np.stack([np.arange(len(pts0)), np.arange(len(pts0))], axis=-1)
+                    answer = pycolmap.estimate_calibrated_two_view_geometry(
+                        camera, pts0.astype(np.float64), camera, pts1.astype(np.float64),
+                        matches=matches, options=options,
+                    )  # fmt: skip
+                    T_delta = np.eye(4)  # previous -> current camera
+                    T_delta[:3] = answer.cam2_from_cam1.matrix().astype(np.float32)
+                    T_w2c.append(T_delta @ T_w2c[-1])
+
+            return _interpolate_poses(T_w2c, sample_idxs)
+        finally:
+            close = getattr(reader, "close", None)
+            if close is not None:
+                close()
 
     def _features(self, img):
         """SIFT keypoints and descriptors of an RGB image."""

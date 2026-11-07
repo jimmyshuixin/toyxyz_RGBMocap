@@ -68,6 +68,44 @@ def _rope_angles(d_model, max_seq_len):
     return freqs.repeat_interleave(2, dim=-1)
 
 
+class _RoPECache:
+    """Model-owned tables: one latest device/dtype/length per head layout.
+
+    No global references or module back-references: disposing the model also
+    disposes these tensors. Layers with the same angles share their storage.
+    """
+
+    def __init__(self):
+        self.tables = {}
+
+    def clear(self):
+        self.tables.clear()
+
+    def get(self, rope, x):
+        seq_len = x.shape[-2]
+        key = (rope.d_model, rope.max_seq_len)
+        entry = self.tables.get(key)
+        cache = None if entry is None else entry[1]
+        if (cache is None or entry[0] != rope.angles.dtype
+                or cache[0].shape[0] < seq_len
+                or cache[0].device != x.device or cache[0].dtype != x.dtype):
+            if seq_len <= rope.max_seq_len:
+                angles = rope.angles
+            else:
+                angles = _rope_angles(rope.d_model, seq_len).to(x.device)
+            cache = (angles.cos().to(x.dtype), angles.sin().to(x.dtype))
+            self.tables[key] = (rope.angles.dtype, cache)
+        return cache
+
+
+def share_rope_cache(model):
+    """Share immutable rotary tables within one model, without checkpoint keys."""
+    cache = _RoPECache()
+    for module in model.modules():
+        if isinstance(module, RoPE):
+            module._rope_cache = cache
+
+
 class RoPE(nn.Module):
     """Rotary position embedding over the sequence (frame) axis."""
 
@@ -76,7 +114,35 @@ class RoPE(nn.Module):
         self.d_model = d_model
         self.max_seq_len = max_seq_len
         self.register_buffer("angles", _rope_angles(d_model, max_seq_len), False)
-        self._cos_sin_cache = None  # built lazily per device/dtype/length
+        self._rope_cache = _RoPECache()  # shared by the owning ExMR instance
+        self._private_rope_cache = _RoPECache()
+        self._canonical_fp32_angles = True
+
+    def _active_rope_cache(self):
+        # With converted angle buffers, the short-table trig and a long table
+        # generated in FP32 can differ. Preserve each layer's original cache
+        # history in that case; ordinary FP32 ExMR layers share identical tables.
+        return (self._rope_cache if self._canonical_fp32_angles and self.angles.dtype == torch.float32
+                else self._private_rope_cache)
+
+    @property
+    def _cos_sin_cache(self):
+        entry = self._active_rope_cache().tables.get((self.d_model, self.max_seq_len))
+        return None if entry is None else entry[1]
+
+    def _apply(self, fn, recurse=True):
+        # These derived tensors are deliberately not registered buffers. Clear
+        # them on device/dtype moves so offloading cannot retain old GPU tables.
+        self._rope_cache.clear()
+        self._private_rope_cache.clear()
+        original_dtype = self.angles.dtype
+        result = super()._apply(fn, recurse=recurse)
+        # A half/bfloat16 -> float round trip leaves rounded angle values even
+        # though the dtype is FP32 again. Keep converted layers private forever;
+        # a plain device move of canonical FP32 buffers remains shareable.
+        self._canonical_fp32_angles &= (original_dtype == torch.float32
+                                       and self.angles.dtype == torch.float32)
+        return result
 
     def forward(self, x):
         """Rotate queries or keys x: (B, H, L, D)."""
@@ -85,20 +151,9 @@ class RoPE(nn.Module):
 
         # cos/sin are computed in fp32 from the angle table (which reaches thousands of radians
         # for long sequences, unrepresentable in fp16) and only the result is cast to x.dtype.
-        cache = self._cos_sin_cache
-        if (
-            cache is None
-            or cache[0].shape[0] < seq_len
-            or cache[0].device != x.device
-            or cache[0].dtype != x.dtype
-        ):
-            if seq_len <= self.max_seq_len:
-                angles = self.angles
-            else:  # sequences longer than the table (long videos)
-                angles = _rope_angles(d_model, seq_len).to(x.device)
-            self._cos_sin_cache = (angles.cos().to(x.dtype), angles.sin().to(x.dtype))
-        cos = self._cos_sin_cache[0][:seq_len]
-        sin = self._cos_sin_cache[1][:seq_len]
+        cache = self._active_rope_cache().get(self, x)
+        cos = cache[0][:seq_len]
+        sin = cache[1][:seq_len]
         return (x * cos) + (_rotate_half(x) * sin)
 
 

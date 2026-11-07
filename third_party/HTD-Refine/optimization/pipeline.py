@@ -233,12 +233,15 @@ def opt_vel(
         mask=mask,
         tgt_conf=tgt_conf,
     )
-    if pp:
-        smpl_params_world = _apply_ik_postprocess(smpl_params_world, tgt_vel_3d, model, vel_thr=vel_thr)
+    # Optimization needs gradients; its subsequent IK is inference only. Drop
+    # the trainable leaves before whole-sequence FK/CCD can retain a new graph.
     smpl_params_world = {
         key: value.detach().to(device).requires_grad_(False)
         for key, value in smpl_params_world.items()
     }
+    if pp:
+        with torch.no_grad():
+            smpl_params_world = _apply_ik_postprocess(smpl_params_world, tgt_vel_3d, model, vel_thr=vel_thr)
     return smpl_params_world, T_w2c, scale
 
 

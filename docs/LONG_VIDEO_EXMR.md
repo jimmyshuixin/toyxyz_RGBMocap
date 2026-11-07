@@ -19,6 +19,11 @@ The largest key span for the default 120-frame window is 375 frames. Masks are
 built for one batch at a time, rather than for the entire video. This bounds
 each attention call, not the memory use of the whole application.
 
+The additional [memory optimizations](MEMORY_OPTIMIZATION.md) stream SimpleVO
+images, share identical RoPE tables and bound character contact-surface work.
+They preserve the original temporal processing; the linked notes distinguish
+exact inference agreement from floating-point roundoff in retarget solving.
+
 RoPE is still evaluated using the original complete-sequence positions, before
 query batching. All transformer layers, shape averaging, root integration,
 contact processing and smoothing retain their existing complete-take behavior.
@@ -58,9 +63,12 @@ used Linux, Python 3.12 and CPU Torch 2.8.0. The integrated fork's 14 long-video
 tests were rerun on Windows with Python 3.12.10 and Torch 2.8.0+cu128 using CPU
 synthetic inputs; that does not constitute CUDA inference validation.
 
-Real-video pose quality, Windows GPU peak memory, interactive preview, a complete
-Blender bake and loading the resulting VMD into MMD must still be checked on the
-target machine. Source modification cannot guarantee faithful capture where a
+The later [memory validation](MEMORY_OPTIMIZATION.md) covers a complete
+257-second, 7,724-frame video on Windows CUDA, with exact original/optimized
+ExMR, correction and BVH output agreement. It does not establish six-minute
+capacity or absolute pose accuracy. Interactive preview, a complete Blender bake
+and loading the resulting VMD into MMD remain outside that check.
+Source modification cannot guarantee faithful capture where a
 person is occluded, leaves the image, or the video cuts between shots.
 
 Run the packaged tests from the source root using the installed ExMR interpreter,
