@@ -1,5 +1,8 @@
 """Run the real CPU retarget pipeline on an explicitly synthetic torso motion.
 
+The historical filename is retained. Current targets must use the upstream
+three-spine PMX mapping; two-spine imports are no longer supported.
+
 Usage:
     python tests/pmx_two_spine_motion_fixture.py --folder /path/to/pmx-import
 
@@ -27,7 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from mocap.bone_overlay import reference_frame  # noqa: E402
 from mocap.retarget import pipeline  # noqa: E402
-from mocap.retarget.mapping import NAMES, PARENTS  # noqa: E402
+from mocap.retarget.mapping import NAMES, PARENTS
+from mocap.retarget.pmx_validation import validate_asset  # noqa: E402
 
 
 SOURCE_FILES = (
@@ -83,14 +87,12 @@ def write_fixture(folder, count, fps):
     for name in IMPORT_FILES:
         if not (folder / name).is_file():
             raise FileNotFoundError(folder / name)
+    validate_asset(folder)
     with np.load(folder / 'pmx-canonical.npz', allow_pickle=False) as canonical:
         target_rest = canonical['rest'].copy()
-        virtual = pipeline._target_virtual_slots(folder, 'pmx', canonical)
     if target_rest.shape != (22, 3) or not np.isfinite(target_rest).all():
         raise ValueError('The target rest data is not a finite 22-joint skeleton.')
     rest = target_rest.copy()
-    if len(virtual):
-        rest[6] = (rest[3] + rest[9]) / 2
     torso_lengths = np.linalg.norm(rest[[6, 9]] - rest[[3, 6]], axis=1)
     if not np.all(torso_lengths > 1e-6):
         raise ValueError('The synthetic source must contain two nonzero torso links.')
@@ -121,10 +123,6 @@ def write_fixture(folder, count, fps):
         weights = np.concatenate([geometry[f'foot_w{side}'] for side in (0, 1)])
         if weights.shape != (len(vertices), 22):
             raise ValueError('The imported foot geometry needs 22-column proxy weights.')
-        if len(virtual):
-            for key in ('foot_w0', 'foot_w1', 'palm_w0', 'palm_w1'):
-                if np.any(geometry[key][:, virtual] != 0):
-                    raise ValueError('A virtual target slot must not have skin weights.')
     source_eligible = []
     for side in (0, 1):
         eligible = ((weights[:, [7 + side, 10 + side]].sum(1) > .7)
@@ -148,7 +146,7 @@ def write_fixture(folder, count, fps):
     metadata = {
         'fixture_kind': FIXTURE_KIND, 'synthetic_motion': True,
         'ai_inference_performed': False, 'frames': count, 'fps': fps,
-        'source_names': NAMES, 'target_virtual_slots': virtual.tolist(),
+        'source_names': NAMES, 'target_virtual_slots': [],
         'source_torso_link_lengths_m': torso_lengths.tolist(),
         'peak_local_torso_angles_deg': local_angles(local)[:, [3, 6, 9]].max(axis=0).tolist(),
         'foot_contact_intervals': [[0, 0, left_stop], [1, right_start, count]],
@@ -178,7 +176,7 @@ def write_fixture(folder, count, fps):
     return metadata
 
 
-def validate_result(folder, count, method, virtual):
+def validate_result(folder, count, method):
     path = folder / f'motion-pmx-{method}.npz'
     with np.load(path, allow_pickle=False) as result:
         arrays = {key: result[key] for key in ('rest', 'root', 'world', 'local', 'points')}
@@ -196,19 +194,11 @@ def validate_result(folder, count, method, virtual):
         determinants = np.linalg.det(rotations)
         if orthogonality > 1e-8 or not np.allclose(determinants, 1, rtol=0, atol=1e-8):
             raise AssertionError(f'{method}: invalid rotation matrices')
-        virtual_error = 0.0
-        if virtual:
-            if not np.array_equal(arrays['rest'][6], arrays['rest'][9]):
-                raise AssertionError(f'{method}: virtual rest point changed')
-            virtual_error = float(np.max(np.abs(arrays['points'][:, 6] - arrays['points'][:, 9])))
-            if virtual_error > 1e-12:
-                raise AssertionError(f'{method}: virtual pivot is no longer coincident')
         return dict(file=path.name, frames=count, all_finite=True,
                     fixed_length_max_error_m=length_error,
                     rotation_orthogonality_max_error=orthogonality,
                     rotation_determinant_min=float(determinants.min()),
-                    rotation_determinant_max=float(determinants.max()),
-                    virtual_point_max_error_m=virtual_error)
+                    rotation_determinant_max=float(determinants.max()))
 
 
 def run_validation(folder, count, fps):
@@ -227,8 +217,7 @@ def run_validation(folder, count, fps):
         report['solver_records'] = [json.loads(line.split(' ', 2)[2])
                                     for line in log_path.read_text(encoding='utf-8').splitlines()
                                     if line.startswith('READY pmx ')]
-        virtual = report['fixture']['target_virtual_slots']
-        report['outputs'] = [validate_result(folder, count, method, virtual)
+        report['outputs'] = [validate_result(folder, count, method)
                              for method in ('rotation', 'stance')]
         after = {name: fingerprint(folder / name) for name in IMPORT_FILES}
         report['import_asset_sha256'] = before

@@ -57,7 +57,7 @@ class MotionView(ViewportBase):
         self._owned_rotations = None
         self.scene_span = 1.7
         self.index = 0
-        self.yaw, self.pitch = math.pi - 2.76, 0.20
+        self.yaw, self.pitch = -2.76, 0.20
         self.distance = 3.2
         self.pan = np.zeros(3)
         self.follow = True
@@ -370,8 +370,8 @@ class MotionView(ViewportBase):
         self.frame_all()
 
     def set_view(self, name, fit=True):
-        self.yaw, self.pitch = {"Perspective": (math.pi - 2.76, .20), "Front": (0, 0),
-            "Back": (math.pi, 0), "Right": (math.pi / 2, 0), "Left": (-math.pi / 2, 0),
+        self.yaw, self.pitch = {"Perspective": (-2.76, .20), "Front": (math.pi, 0),
+            "Back": (0, 0), "Right": (math.pi / 2, 0), "Left": (-math.pi / 2, 0),
             "Top": (0, math.pi / 2 - .001), "Bottom": (0, -math.pi / 2 + .001)}[name]
         self.view_name = name
         if fit:
@@ -974,7 +974,7 @@ class MotionView(ViewportBase):
         self._gizmo_hits = []
         endpoints = []
         for axis, color, letter, positive, negative in ((0, "#db6375", "X", "Right", "Left"),
-            (1, "#91bb51", "Y", "Top", "Bottom"), (2, "#5795de", "Z", "Front", "Back")):
+            (1, "#91bb51", "Y", "Top", "Bottom"), (2, "#5795de", "Z", "Back", "Front")):
             for sign, name in ((1, positive), (-1, negative)):
                 vector = basis[:2, axis] * 31 * sign
                 end = origin + QPointF(float(vector[0]), float(-vector[1]))

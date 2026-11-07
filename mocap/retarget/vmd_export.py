@@ -89,10 +89,7 @@ def export_vmd(folder,target,transform,label):
     ik=set()
     for pb in arm.pose.bones:
         for c in pb.constraints:
-            # The bake replaces body IK with FK, but native accessory IK can
-            # remain active (notably articulated high heels). Preserve those
-            # solvers instead of changing their deformation on VMD playback.
-            if c.type=='IK' and c.mute and c.subtarget in arm.pose.bones:
+            if c.type=='IK' and c.subtarget in arm.pose.bones:
                 b=arm.pose.bones[c.subtarget];ik.add(b.mmd_bone.name_j or b.name)
     ik_names=[name_bytes(n,20) for n in sorted(ik)]
     scene=bpy.context.scene;fps=scene.render.fps/scene.render.fps_base

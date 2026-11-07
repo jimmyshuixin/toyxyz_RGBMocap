@@ -9,7 +9,7 @@ import contextlib, inspect, hashlib
 from io_scene_fbx import export_fbx_bin
 
 
-def body_dependencies(kind, arm, animated=()):
+def body_dependencies(kind, arm):
     # PMX deformation helpers transfer the same body motion into weighted skin.
     # They are anatomical helpers, not skirt/hair/ornament animation. Omitting
     # them breaks skin when FBX drops Blender constraints.
@@ -17,53 +17,8 @@ def body_dependencies(kind, arm, animated=()):
         return set()
     stems = ('足D', 'ひざD', '足首D', '足首補助', 'ひざ補助',
              '肩補助', '手首補助', 'ひじ補助', '腕補助', '胸補助')
-    result = {stem+side for stem in stems for side in ('.L', '.R')
-              if stem+side in arm.data.bones}
-    # A model may use arbitrary names for weighted append-transform helpers
-    # (for example a cuff following the wrist). Their evaluated transforms
-    # differ from the nearest keyed ancestor. Collapsing them to that ancestor
-    # loses deformation in both the viewport LBS palette and selective FBX.
-    # Follow native parent/grant dependencies, without keying unrelated controls
-    # or changing the PMX's constraints, hierarchy or weights.
-    children = {}
-    grants = set()
-    for bone in arm.data.bones:
-        if bone.parent is not None:
-            children.setdefault(bone.parent.name, set()).add(bone.name)
-    for pb in arm.pose.bones:
-        meta = getattr(pb, 'mmd_bone', None)
-        source = getattr(meta, 'additional_transform_bone', '')
-        active = any(c.name in {'mmd_additional_rotation', 'mmd_additional_location'}
-                     and not c.mute and c.influence > 0 for c in pb.constraints)
-        if source and active:
-            children.setdefault(source, set()).add(pb.name)
-            if not getattr(pb, 'is_mmd_shadow_bone', False):
-                grants.add(pb.name)
-        # Accessory IK (for example independent high heels) remains active
-        # after body FK baking. Every bone moved by that solve needs its own
-        # evaluated transform rather than an ancestor's rigid transform.
-        for constraint in pb.constraints:
-            if (getattr(constraint, 'type', '') != 'IK' or constraint.mute
-                    or constraint.influence <= 0):
-                continue
-            target = getattr(constraint, 'subtarget', '')
-            if target:
-                children.setdefault(target, set()).add(pb.name)
-            current = pb.bone
-            count = 0
-            while current is not None and (constraint.chain_count == 0 or count < constraint.chain_count):
-                grants.add(current.name)
-                current = current.parent
-                count += 1
-    pending = list(animated)
-    driven = set()
-    while pending:
-        name = pending.pop()
-        if name in driven:
-            continue
-        driven.add(name)
-        pending.extend(children.get(name, ()))
-    return result | (grants & driven)
+    return {stem+side for stem in stems for side in ('.L', '.R')
+            if stem+side in arm.data.bones}
 
 
 @contextlib.contextmanager

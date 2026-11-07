@@ -1,19 +1,18 @@
-"""Captured motion's output world: +Z forward (Blender/PMX -Y).
+"""Original capture/retarget world, with migration of saved half-turn cameras.
 
-Native inference, contact caches and shared-scene placements retain their
-original coordinates. Apply this proper half-turn once at presentation/export
-boundaries, after shared placement. Rotating the whole world preserves turns,
-trajectories and interactions instead of independently reorienting each actor.
+Preview and export retain the native source and character placement. Version 1
+introduced an output-only half-turn; version 2 restores upstream coordinates.
+The API remains shared so source, character and camera paths cannot diverge.
 """
 from copy import deepcopy
 import numpy as np
 
 
-ROTATION = np.diag([-1., 1., -1.])
-TRANSFORM = np.diag([-1., 1., -1., 1.])
+ROTATION = np.eye(3)
+TRANSFORM = np.eye(4)
 ROTATION.setflags(write=False)
 TRANSFORM.setflags(write=False)
-HEADING_VERSION = 1
+HEADING_VERSION = 2
 
 
 def output_transform(placement=None):
@@ -30,29 +29,25 @@ def source_camera(eye, basis):
     return np.asarray(eye) @ ROTATION, np.asarray(basis) @ ROTATION
 
 
-def character_transform(take):
-    """Captured bodies turn with their source; rest/face-only rigs stay native."""
-    placement = take.get('transform')
-    return output_transform(placement) if take.get('source') else placement
+def character_transform(take, kind=None):
+    """All characters use upstream take placement, including captured PMX."""
+    return take.get('transform')
 
 
 def upgrade_saved_camera(camera):
-    """Copy a saved orbit camera into the output world without changing its view.
-
-    Unmarked cameras predate the output half-turn. Transport both the look-at
-    position and orbit offset so an old distant actor stays in the same frame.
-    The returned marker makes repeated restore/save operations idempotent; the
-    supplied project metadata is never modified or written here.
-    """
+    """Restore version-1 cameras to native coordinates without editing input."""
     result = deepcopy(camera)
-    if 'heading_version' in result:
-        if result['heading_version'] != HEADING_VERSION:
-            raise ValueError('Unsupported saved camera heading version.')
+    version = result.get('heading_version')
+    if version == HEADING_VERSION:
         return result
-    for key in ('scene_center', 'target', 'pan'):
-        if key in result:
-            result[key] = output_points(result[key]).tolist()
-    if 'yaw' in result:
-        result['yaw'] = float(result['yaw']) + np.pi
+    if version not in (None, 1):
+        raise ValueError('Unsupported saved camera heading version.')
+    if version == 1:
+        inverse = np.diag([-1., 1., -1.])
+        for key in ('scene_center', 'target', 'pan'):
+            if key in result:
+                result[key] = (np.asarray(result[key]) @ inverse).tolist()
+        if 'yaw' in result:
+            result['yaw'] = float(result['yaw']) - np.pi
     result['heading_version'] = HEADING_VERSION
     return result

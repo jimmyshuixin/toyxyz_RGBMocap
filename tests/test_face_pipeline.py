@@ -116,6 +116,9 @@ class FacePipelineTests(unittest.TestCase):
         (asset/'import.json').write_text('{"kind":"pmx"}',encoding='utf8')
         for name in ('pmx-rest.blend','pmx-rig.json','pmx-canonical.npz','pmx-contact-geometry.npz'):
             (asset/name).write_bytes(b'fixture')
+        from mocap.retarget.mapping import PMX, PARENTS
+        atomic_json(asset/'pmx-rig.json',dict(bones=[dict(name=name) for name in PMX]))
+        np.savez(asset/'pmx-canonical.npz',names=PMX,parents=PARENTS)
         sources=[self.project/'actor-a',self.project/'actor-b']
         faces=[]
         for index,source in enumerate(sources):

@@ -42,8 +42,7 @@ __pycache__/
 !/tests/test_longvideo_identity.py
 !/tests/test_longvideo_models.py
 !/tests/test_longvideo_retarget.py
-!/tests/test_pmx_two_spine.py
-!/tests/test_pmx_two_spine_blender.py
+!/tests/test_pmx_upstream*.py
 !/tests/pmx_two_spine_motion_fixture.py
 !/tests/blender_pmx_two_spine_integration.py
 !/tests/test_memory_exmr.py
@@ -52,11 +51,8 @@ __pycache__/
 !/tests/test_face_*.py
 !/tests/blender_face_*.py
 !/tests/character_face_gl_check.py
-!/tests/test_pmx_ancestor_controls.py
-!/tests/test_pmx_coincident_pivots.py
 !/tests/test_pmx_dependencies.py
 !/tests/test_pmx_images.py
-!/tests/test_pmx_numbered_spine.py
 !/tests/test_pmx_validation.py
 !/tests/test_character_materials.py
 !/tests/test_texture_budget.py

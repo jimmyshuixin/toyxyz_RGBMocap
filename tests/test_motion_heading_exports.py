@@ -19,7 +19,6 @@ if str(ROOT) not in sys.path:
 
 from mocap import blend_export, export_copy, fbx_export
 from mocap.biped_bvh import bone_names
-from mocap.motion_heading import TRANSFORM
 
 
 def fbx_elements(path):
@@ -122,10 +121,11 @@ class HeadingExportTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), original, str(path))
 
     def expected(self, placed):
-        transform = TRANSFORM @ (self.placement if placed else np.eye(4))
+        # Independent oracle: the native placement is the complete transform.
+        transform = self.placement if placed else np.eye(4)
         return transform, self.positions @ transform[:3, :3].T + transform[:3, 3]
 
-    def test_fbx_actual_channels_turn_once_and_keep_reference_pose(self):
+    def test_fbx_actual_channels_keep_native_placement_and_reference_pose(self):
         for placed in (False, True):
             for prepend in (False, True):
                 with self.subTest(placed=placed, prepend=prepend):
@@ -201,7 +201,7 @@ class HeadingExportTests(unittest.TestCase):
             self.assertEqual(blend_export.run(self.request(row)), 1)
         moved = native.copy()
         moved[:, :3, 3] -= np.einsum('tij,tj->ti', native[:, :3, :3], displacement * 2.)
-        np.testing.assert_allclose(captured['camera'], moved @ TRANSFORM, atol=1e-12)
+        np.testing.assert_allclose(captured['camera'], moved, atol=1e-12)
         scene_positions = self.positions @ self.placement[:3, :3].T + self.placement[:3, 3]
         before = np.einsum('tij,tj->ti', moved[:, :3, :3], scene_positions) + moved[:, :3, 3]
         after = np.einsum('tij,tj->ti', captured['camera'][:, :3, :3], captured['root'][:, :3]) + captured['camera'][:, :3, 3]

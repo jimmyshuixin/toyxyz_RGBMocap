@@ -2280,3 +2280,34 @@ These checks used tiny local bootstrap fixtures, not runtime installation,
 GitHub publication, GPU inference or a clean-Windows installation. No user model,
 project, runtime package or dependency pin was changed. Test scripts, fixtures
 and reports remain outside the public source tree.
+
+
+## Original PMX retargeting restored (2026-11-07)
+
+PMX body mapping, solver, contact pipeline, geometry registration, bone baking
+and selective FBX sampling were restored to upstream commit
+[`75cda26531b47f41c75d4aa4a82c4f135daa6eea`](https://github.com/toyxyz/toyxyz_RGBMocap/commit/75cda26531b47f41c75d4aa4a82c4f135daa6eea).
+The original VMD IK policy is restored; captured facial morphs remain available.
+The fork's extra output half-turn is removed from source and character outputs
+together. Original PMX model restrictions apply; see [compatibility](PMX_COMPATIBILITY.md).
+
+An independent exact-upstream snapshot and the changed checkout each imported
+the same standard three-spine PMX, solved and baked the same 300-frame previously
+captured ExMR motion, and exported VMD. All 150 compared arrays were exactly
+equal, including canonical/contact geometry, solver stages, root motion and
+300 frames of 54 keyed-bone world matrices. The two VMD files were byte-identical.
+This demonstrates equivalence for that fixture, not ground-truth capture accuracy
+or the absence of every defect in the original solver.
+
+A separate actual export-worker check applied a 30-degree Y rotation and a
+(1.2, 0.13, -0.45) metre translation, then imported the VMD into the original PMX.
+Across all 300 frames and 54 keyed bones, the maximum matrix-component difference
+was 1.61093e-6 (acceptance limit 5e-5), explicitly accounting for the upstream
+waist-to-root carrier representation. Model and source-motion hashes were unchanged.
+
+The face/material suites passed 96 tests. A synthetic Blender 4.5 integration
+also passed body-plus-face preview, VMD morph export and mesh-bearing FBX round
+trips. No new body inference or native MikuMikuDance playback was performed.
+Private inputs, exact upstream snapshot, commands and comparison reports are
+stored outside the source checkout in the local upstream-retarget validation
+folder. Existing user projects and completed animations were not rewritten.

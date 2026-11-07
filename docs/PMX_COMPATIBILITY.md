@@ -1,11 +1,17 @@
 # PMX compatibility and quality checks
 
-PMX import supports the native `上半身 → 上半身1 → 上半身2` and
-`上半身 → 上半身2 → 上半身3` three-spine conventions, and true two-spine
-characters. The numbered convention is accepted only after checking the native
-torso, neck and shoulder ancestry. Intermediate control bones remain native;
-the importer does not rename or insert physical bones. Props and accessories
-without a humanoid skeleton are rejected with an explicit diagnostic.
+PMX body retargeting uses the original toyxyz_RGBMocap implementation at
+`75cda26531b47f41c75d4aa4a82c4f135daa6eea`: the standard 22 real mapped bones,
+including `上半身 → 上半身1 → 上半身2`. Two-spine and alternate numbered
+`上半身 → 上半身2 → 上半身3` mappings are rejected. No virtual bone or automatic
+renaming is added. Source motion and PMX preview/export share the original world
+coordinates and placement, without the fork's additional half-turn.
+
+The mapping, contact solver, geometry registration, Blender body bake and FBX
+helper selection are restored together. The contact solver again evaluates
+whole-take foot/palm surfaces; the fork's bounded contact-surface allocation is
+not part of this path. Facial morph capture/export and texture handling remain
+available independently of body mapping.
 
 Missing image references are reported in the job log and `import.json` rather
 than discarding a usable character because a shared MMD toon image is absent.
@@ -26,16 +32,18 @@ changed image and both sizes. Large pixel transfers use temporary disk mappings;
 the texture budget is not a hard limit on the Blender process's total RAM or on
 GPU mipmap storage. Cache version 2 rebuilds on first display and keeps old caches.
 
-Reimport characters created with an incorrect spine mapping, then retarget them
-again. Existing project assets and completed animations are not automatically
-rewritten. Retarget again to obtain updated helper-bone preview/export behavior.
-Native append-driven skin helpers and accessory IK chains are included in
-preview and FBX sampling. VMD disables the body IK chains actually muted during
-baking and retains active shoe/accessory IK. A mapped bone beneath an unsupported
-animated append-transform control is rejected during retargeting with the control
-names; use the standard model variant. Static shoulder-cancel controls and the
-explicitly supported waist-cancel path remain available. Static import alone
-does not establish that a complex auxiliary rig can be retargeted.
+Cached virtual or remapped skeletons are rejected before source preparation.
+Compatible original three-spine caches remain usable; incompatible models must
+be replaced with a model supported by the original mapping and imported again.
+Existing project assets and completed animations are not automatically rewritten.
+Retarget and export again for the restored behavior; body inference is reusable.
+
+Preview and FBX use the original fixed whitelist of anatomical helpers. Arbitrary
+append-driven accessories are no longer added to that palette. VMD restores the
+original IK disable policy, including accessory IK controllers found on the rig.
+Complex control rigs may therefore deform differently from the removed fork
+extensions. Model support follows the original implementation; static import
+alone does not establish that a complex auxiliary rig can be retargeted.
 
 Active append transforms that reference their own bone are rejected before
 Blender creates a cyclic dependency graph. Repair an explicit copy of the model
@@ -59,7 +67,11 @@ round trip; synthetic and previously captured inputs must be labeled separately.
 These tests do not establish capture accuracy against ground truth or native
 MikuMikuDance rendering equivalence.
 
-## Local validation, 2026-11-07
+## Historical extension validation, 2026-11-07
+
+The following measurements predate restoration of the original retargeting path.
+The broader model coverage and helper/IK behavior described here are not current
+support claims. New restoration checks must be reported separately.
 
 The local catalog contained 29 PMX files: 23 humanoid variants and six props.
 Full import improved from five original humanoids to 19 original humanoids;

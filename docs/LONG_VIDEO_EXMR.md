@@ -44,9 +44,11 @@ import the PMX character, retarget it and export a character VMD as usual. The
 existing exporter writes 30 fps frames 0 through 10,799 for a 10,800-frame take.
 The patch does not join separate takes caused by loss of person visibility.
 
-Retarget preparation also reuses static NPZ arrays instead of unpacking the
-same mesh data every frame or the same motion matrices for every bone. The
-retarget mathematics, character mapping and VMD writer remain unchanged.
+Retarget source preparation still reuses static NPZ mesh arrays instead of
+unpacking the same data every frame. Character solving and bone baking now use
+the original upstream implementation, including its allocation behavior; the
+fork's per-bone NPZ reuse and blocked contact skinning were withdrawn with the
+PMX restoration. See [PMX compatibility](PMX_COMPATIBILITY.md).
 
 Keep Resource Safety enabled. The existing image batches, on-disk caches,
 out-of-memory recovery and cancellation behavior remain in place. A long video

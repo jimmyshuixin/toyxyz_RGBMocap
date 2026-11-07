@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import bpy
 import addon_utils
-from .mapping import A, PARENTS, body_mapping, body_trajectory_root, mapping_profile, real_bone_mapping
+from .mapping import A, PARENTS, body_mapping, body_trajectory_root
 from .file_paths import io_path, save_blend
 
 
@@ -54,20 +54,8 @@ def import_character(filename, out):
     arms=[o for o in bpy.context.scene.objects if o.type=='ARMATURE']
     if len(arms)!=1:raise ValueError('Import one humanoid armature per character file.')
     arm=arms[0]
-    parents={b.name:b.parent.name if b.parent else None for b in arm.data.bones}
-    pmx_names=None
-    if kind=='pmx':
-        # Keep native MMD identities even when Blender renamed left/right bones.
-        # Preserve all candidates so ambiguous metadata cannot silently overwrite.
-        pmx_names={}
-        for pb in arm.pose.bones:
-            pmx_names.setdefault(pb.mmd_bone.name_j or pb.name,[]).append(pb.name)
-    mapping=body_mapping(kind,arm.data.bones.keys(),semantic,parents=parents,pmx_names=pmx_names)
-    profile=mapping_profile(kind,mapping)
-    real_mapping=real_bone_mapping(mapping,profile)
-    trajectory_root=body_trajectory_root(parents,real_mapping)
-    if profile['virtual_slots']:
-        report('Using native two-spine PMX skeleton')
+    mapping=body_mapping(kind,arm.data.bones.keys(),semantic)
+    trajectory_root=body_trajectory_root({b.name:b.parent.name if b.parent else None for b in arm.data.bones},mapping)
     for o in bpy.context.scene.objects:
         o.animation_data_clear()
         if o.type=='MESH':
@@ -87,25 +75,16 @@ def import_character(filename, out):
     for obj in bpy.context.scene.objects:
         if obj.parent is None:obj.location+=shift
     bpy.context.view_layer.update()
-    rest=np.zeros((22,3))
-    for name,slot in real_mapping.items():
-        rest[slot]=np.array(arm.matrix_world@arm.data.bones[name].head_local)@A
-    if profile['virtual_slots']:
-        # A co-located, unweighted internal slot cannot add a physical bend pivot.
-        rest[6]=rest[9]
-        if np.linalg.norm(rest[9]-rest[3])<1e-5:
-            raise ValueError('The PMX two-spine rig has a zero-length torso segment.')
-    if not np.isfinite(rest).all():
-        raise ValueError('The humanoid rig has non-finite rest positions.')
+    rest=np.array([arm.matrix_world@arm.data.bones[n].head_local for n in mapping])@A
     limb=np.array([1,2,4,5,7,8,10,11,16,17,18,19,20,21])
     if np.any(np.linalg.norm(rest[limb]-rest[PARENTS[limb]],axis=1)<1e-5):
         raise ValueError('The humanoid rig has zero-length body segments.')
     meshes=[o for o in bpy.context.scene.objects if o.type=='MESH']
     count=sum(len(o.data.vertices) for o in meshes)
     if not 0<count<=1_000_000:raise ValueError('Character preview supports 1 to 1,000,000 vertices.')
-    rig=dict(kind=kind,armature=arm.name,semantic=semantic,trajectory_root=trajectory_root,body_profile=profile,bones=[dict(name=b.name,parent=b.parent.name if b.parent else None) for b in arm.data.bones],meshes=[dict(name=o.name,vertices=len(o.data.vertices)) for o in meshes])
+    rig=dict(kind=kind,armature=arm.name,semantic=semantic,trajectory_root=trajectory_root,bones=[dict(name=b.name,parent=b.parent.name if b.parent else None) for b in arm.data.bones],meshes=[dict(name=o.name,vertices=len(o.data.vertices)) for o in meshes])
     Path(io_path(out/f'{kind}-rig.json')).write_text(json.dumps(rig,ensure_ascii=False),encoding='utf8')
-    np.savez(io_path(out/f'{kind}-canonical.npz'),rest=rest,names=mapping,parents=PARENTS,virtual_slots=np.asarray(profile['virtual_slots'],dtype=np.int64))
+    np.savez(io_path(out/f'{kind}-canonical.npz'),rest=rest,names=mapping,parents=PARENTS)
     from .blender_geometry import register
     report('Registering soles, palms and humanoid proportions')
     register(out,kind,rig,arm,mapping,rest)
@@ -119,7 +98,7 @@ def import_character(filename, out):
         bpy.ops.file.pack_all()
     save_blend(out/f'{kind}-rest.blend')
     preview(out,arm,None,1)
-    metadata=dict(kind=kind,name=filename.stem,vertices=count,bones=len(arm.data.bones),body_profile=profile['id'])
+    metadata=dict(kind=kind,name=filename.stem,vertices=count,bones=len(arm.data.bones))
     if kind=='pmx':metadata['mmd_import_scale']=.08
     if warnings:metadata['warnings']=warnings
     Path(io_path(out/'import.json')).write_text(json.dumps(metadata),encoding='utf8')
@@ -162,7 +141,7 @@ def preview(out,arm,keyed,n):
     from .selective_fbx import body_dependencies
     metadata=Path(io_path(out/'import.json'))
     kind=json.loads(metadata.read_text(encoding='utf-8'))['kind'] if metadata.exists() else next(p.stem.split('-')[0] for p in Path(io_path(out)).glob('*-rig.json'))
-    dynamic=set(keyed or [])|body_dependencies(kind,arm,keyed or ())
+    dynamic=set(keyed or [])|body_dependencies(kind,arm)
     if not keyed:dynamic={b.name for b in arm.data.bones}
     dynamic={name for name in dynamic if name in arm.data.bones}
     palette=sorted(dynamic);index={name:i for i,name in enumerate(palette)}
@@ -266,7 +245,7 @@ def main(args):
         bpy.context.view_layer.objects.active=arm
         temp=target.with_name('.'+target.stem+'-'+uuid.uuid4().hex+'.partial.fbx')
         try:
-            with body_only_sampler(arm,set(info['keyed_bones'])|body_dependencies(kind,arm,info['keyed_bones'])):
+            with body_only_sampler(arm,set(info['keyed_bones'])|body_dependencies(kind,arm)):
                 # Explicit terminal markers keep Blender's Ignore Leaf Bones
                 # option from removing real terminal finger bones.
                 bpy.ops.export_scene.fbx(filepath=io_path(temp),use_selection=True,object_types=types,add_leaf_bones=True,

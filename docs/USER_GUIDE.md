@@ -17,6 +17,12 @@ animated fingers. Standard correction, retargeting and FBX controls apply.
 
 For PMX spine conventions, missing textures, preview texture budgets and model repair guidance, see [PMX compatibility](PMX_COMPATIBILITY.md).
 
+PMX body motion now uses the original toyxyz retargeting logic and requires real
+`上半身`, `上半身1` and `上半身2` bones. Two-spine and alternate-numbered mappings
+are no longer supported. Retarget existing supported characters again and
+reexport their motion; incompatible cached mappings prompt you to import a
+supported character. Existing project data and original model files are retained.
+
 Transfer a reconstructed person's motion to a character without running AI
 inference again. Supported targets are **Mixamo FBX**, **VRM** and **PMX** humanoids.
 
@@ -706,16 +712,13 @@ person/take gets a separate named file and rig; duplicate filenames get suffixes
 People exports use the viewport's shared placement. Takes retain their own frame
 counts; align their start times when combining different source intervals.
 
-Captured motion uses a common 180-degree turn around the vertical axis in the
-preview and exports, changing the previous Blender +Y-facing convention to -Y
-to match PMX. In the application's Y-up coordinates this maps -Z to +Z.
-Root travel, turns, shared actor placement and exported cameras turn together;
-individual actors are not independently aligned to their first frame. This
-also applies to retargeted character FBX/VMD and PEAR preview. Imported rest
-poses, face-only characters and the optional leading T-pose retain their native
-orientation. Existing projects use the new convention when reopened/exported;
-previously exported files must be exported again. Inference and contact caches
-are not rewritten and reconstruction is not required.
+Preview and exports use the original capture/retarget coordinate convention.
+Source motion, PMX characters, other character formats and cameras share that
+world; the fork's extra 180-degree output turn has been removed. Root travel and
+saved actor placement are used directly, without aligning each actor to its
+first frame. Saved cameras from the half-turn version are converted on load to
+retain their view. Reexport files produced by that version. Inference and source
+contact caches are not rewritten, so body reconstruction is not required.
 
 Source-person exports use a 52-bone hierarchy with **Hips** as root and plain
 anatomical names by default. The Biped profile renames exported joints as described
